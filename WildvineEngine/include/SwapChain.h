@@ -124,8 +124,8 @@ public:
      * @return       Código @c HRESULT nativo de la operación.
      */
     HRESULT
-           resizeBuffers(UINT width, 
-                         UINT height);
+           resizeBuffers(unsigned int width,
+                         unsigned int height);
 
     /**
      * @brief Obtiene una referencia actualizada a la textura del Back Buffer.

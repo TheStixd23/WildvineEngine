@@ -421,8 +421,8 @@ BaseApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
 		// Evita recrear cuando está minimizada
 		if (wParam == SIZE_MINIMIZED) return 0;
 
-		UINT newW = LOWORD(lParam);
-		UINT newH = HIWORD(lParam);
+		unsigned int newW = LOWORD(lParam);
+		unsigned int newH = HIWORD(lParam);
 		if (newW == 0 || newH == 0) return 0;
 
 		// Recupera tu instancia BaseApp (lo más común es guardarla en GWLP_USERDATA en WM_CREATE)
@@ -437,7 +437,7 @@ BaseApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
 	return DefWindowProc(hWnd, message, wParam, lParam);
 }
 
-void BaseApp::onResize(UINT newW, UINT newH)
+void BaseApp::onResize(unsigned int newW, unsigned int newH)
 {
 	// 1) Actualiza window size (tu init lo calcula con GetClientRect solo una vez) :contentReference[oaicite:6]{index=6}
 	if (!m_d3dReady) {

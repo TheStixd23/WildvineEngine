@@ -115,7 +115,7 @@ public:
 	 * @param newH Nuevo alto de la ventana.
 	 */
 	void
-		onResize(UINT newW, UINT newH);
+		onResize(unsigned int newW, unsigned int newH);
 
 	/**
 	 * @brief Recrea los buffers del pase del editor si la ventana de ImGui fue redimensionada.

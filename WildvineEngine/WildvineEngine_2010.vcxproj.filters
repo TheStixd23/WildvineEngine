@@ -51,6 +51,12 @@
     <Filter Include="source\SceneGraph">
       <UniqueIdentifier>{06b326ef-b6ff-47b3-99e4-ce6542eb8955}</UniqueIdentifier>
     </Filter>
+    <Filter Include="include\Rendering">
+      <UniqueIdentifier>{8b19442e-7d38-4690-be76-d3ac4dcd1d24}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\Rendering">
+      <UniqueIdentifier>{60f5d793-960b-4cf6-ae3f-1cd7ff16bd3d}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="WildvineEngine.cpp">
@@ -146,12 +152,18 @@
     <ClCompile Include="source\EditorViewportPass.cpp">
       <Filter>source</Filter>
     </ClCompile>
+    <ClCompile Include="source\Rendering\ForwardRenderer.cpp">
+      <Filter>source\Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="source\Rendering\MaterialInstance.cpp">
+      <Filter>source\Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="source\Rendering\RenderScene.cpp">
+      <Filter>source\Rendering</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="WildvineEngine.fx">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="bin\Skybox.hlsl">
       <Filter>Shaders</Filter>
     </None>
   </ItemGroup>
@@ -308,6 +320,24 @@
     </ClInclude>
     <ClInclude Include="include\EngineUtilities\Utilities\EditorViewportPass.h">
       <Filter>include\Utilities</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Rendering\ForwardRenderer.h">
+      <Filter>include\Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Rendering\RenderScene.h">
+      <Filter>include\Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Rendering\RenderTypes.h">
+      <Filter>include\Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Rendering\Mesh.h">
+      <Filter>include\Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Rendering\MaterialInstance.h">
+      <Filter>include\Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Rendering\Material.h">
+      <Filter>include\Rendering</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
