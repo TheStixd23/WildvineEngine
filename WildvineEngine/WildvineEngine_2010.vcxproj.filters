@@ -339,5 +339,11 @@
     <ClInclude Include="include\Rendering\Material.h">
       <Filter>include\Rendering</Filter>
     </ClInclude>
+    <ClInclude Include="include\ECS\LightComponent.h">
+      <Filter>include\ECS</Filter>
+    </ClInclude>
+    <ClInclude Include="include\ECS\MeshRendererComponent.h">
+      <Filter>include\ECS</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
