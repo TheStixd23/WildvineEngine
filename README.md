@@ -1,14 +1,13 @@
 # 🌿 Wildvine Engine
 
-**WildvineEngine** es un motor gráfico 3D de alto rendimiento desarrollado en **C++** y **DirectX 11**. Este proyecto sirve como compendio práctico y arquitectónico para la materia de **Gráficas Computacionales 3D (Generación 2026-01)**.
+**WildvineEngine** es un motor gráfico 3D de alto rendimiento desarrollado en **C++** y **DirectX 11**.  
+Este proyecto sirve como compendio práctico y arquitectónico para la materia de **Gráficas Computacionales 3D (Generación 2026-01)**.
 
-El motor implementa una arquitectura moderna basada en un **Grafo de Escena (Scene Graph)**, un sistema base de **Entidades y Componentes (ECS)**, y un **Editor Visual** completo utilizando *Dear ImGui* e *ImGuizmo*.
+El motor implementa una arquitectura moderna basada en un **Grafo de Escena (Scene Graph)**, un sistema base de **Entidades y Componentes (ECS)**, un robusto **Pipeline de Renderizado Forward** con soporte para sombras dinámicas, y un **Editor Visual** completo utilizando *Dear ImGui* e *ImGuizmo*.
 
 ---
 
 ## 📊 Arquitectura del Motor (Diagrama de Flujo)
-
-A continuación, se presenta la arquitectura de alto nivel de WildvineEngine y cómo interactúan sus sistemas principales durante el ciclo de vida de la aplicación:
 
 ```mermaid
 graph TD
@@ -18,10 +17,11 @@ graph TD
     C --> D[Render Pipeline DirectX 11]
     C --> E[Scene Graph / ECS]
     C --> F[Editor UI - GUI]
+    C --> G[Gestión de Memoria API - EU]
 
-    D --> D1[Device & DeviceContext]
-    D --> D2[Shaders & Buffers]
-    D --> D3[Texturas & Materiales]
+    D --> D1[Forward Renderer & Shadow Pass]
+    D --> D2[Render Queues: Opaque / Transparent]
+    D --> D3[Skybox & Environment]
 
     E --> E1[Gestión de Entidades / Actores]
     E --> E2[Jerarquía recursiva Padre-Hijo]
@@ -29,81 +29,138 @@ graph TD
     F --> F1[Outliner]
     F --> F2[Inspector]
     F --> F3[Viewport & ImGuizmo Toolbar]
-```
+````
 
 ---
 
 ## ⚙️ Sistemas y Características Principales
 
-El motor está modularizado en varias utilidades y subsistemas fundamentales.
+El motor está modularizado en varias utilidades y subsistemas fundamentales para garantizar escalabilidad y un alto rendimiento gráfico.
 
-### 1. Sistema de Componentes (ECS Base)
-El motor utiliza un enfoque orientado a datos para definir los objetos en pantalla. Los tipos de componentes disponibles son:
+---
 
-| Tipo de Componente | Descripción de su función en el motor |
-| :--- | :--- |
-| **NONE** | Tipo base o componente no inicializado. |
-| **TRANSFORM** | Almacena y calcula la matriz de mundo (Posición, Rotación, Escala). |
-| **MESH** | Contiene los datos de vértices e índices para el renderizado 3D. |
-| **MATERIAL** | Define cómo la luz interactúa con la superficie (Shaders, Texturas). |
-| **HIERARCHY** | Gestiona las relaciones de nodos dentro del Grafo de Escena. |
+### 🧩 1. Sistema de Componentes (ECS Base)
 
-### 2. Scene Graph (Grafo de Escena)
-Implementa un árbol jerárquico dinámico para gestionar las entidades en el mundo 3D.
-* **Relaciones Padre-Hijo:** Permite adjuntar (`attach`) o separar (`detach`) entidades fácilmente.
-* **Transformaciones Locales y Globales:** Usa la función `updateWorldRecursive` para calcular la posición final de un objeto basándose en sus ancestros (`parentWorld`).
+El motor utiliza un enfoque orientado a datos para definir los objetos en pantalla.
 
-### 3. Editor Visual Integrado (GUI)
-Construido con la robusta librería **ImGui**, el editor proporciona herramientas de desarrollo en tiempo real:
+| Tipo de Componente | Descripción                            |
+| ------------------ | -------------------------------------- |
+| **NONE**           | Tipo base o componente no inicializado |
+| **TRANSFORM**      | Posición, rotación y escala            |
+| **MESH**           | Datos de vértices e índices            |
+| **MATERIAL**       | Shaders, texturas y estados de render  |
+| **HIERARCHY**      | Relaciones dentro del Scene Graph      |
 
-| Panel / Herramienta | Funcionalidad |
-| :--- | :--- |
-| **Dockspace** | Permite acoplar y organizar ventanas del editor dinámicamente. |
-| **Outliner** | Muestra la lista jerárquica de todos los `Actors` presentes en la escena. |
-| **Inspector** | Panel para editar las propiedades (Transform, variables, etc.) del actor seleccionado. |
-| **Viewport** | Renderiza la escena 3D dentro de una ventana de ImGui usando un `ShaderResourceView`. |
-| **ImGuizmo** | Proporciona manipuladores visuales (Gizmos) en pantalla para Traslación, Rotación y Escala. |
+---
+
+### 🌳 2. Scene Graph (Grafo de Escena)
+
+* Relaciones **padre-hijo dinámicas**
+* Transformaciones **locales y globales**
+* Cálculo recursivo mediante `updateWorldRecursive`
+
+---
+
+### 🎮 3. Pipeline de Renderizado (Forward Renderer)
+
+* Clasificación en:
+
+  * `opaqueQueue` (Early-Z, front-to-back)
+  * `transparentQueue` (Alpha Blend, back-to-front)
+* **Shadow Mapping dinámico (2048x2048)**
+* Uso de **Constant Buffers alineados a 16 bytes**
+
+---
+
+### 🌌 4. Sistema de Entornos (Skybox)
+
+* Renderizado mediante **Cubemap**
+* Eliminación de traslación en la **View Matrix**
+* Depth configurado para renderizar siempre al fondo
+
+---
+
+### 🧠 5. Gestión de Memoria (Namespace EU)
+
+* `TSharedPointer<T>` → conteo de referencias
+* `TUniquePtr<T>` → propiedad única
+* `TWeakPointer<T>` → evita ciclos de dependencia
+
+---
+
+### 🛠️ 6. Editor Visual (GUI)
+
+Construido con **Dear ImGui** e **ImGuizmo**.
+
+| Panel     | Función                  |
+| --------- | ------------------------ |
+| Dockspace | Organización de ventanas |
+| Outliner  | Jerarquía de actores     |
+| Inspector | Edición de propiedades   |
+| Viewport  | Render en tiempo real    |
+| ImGuizmo  | Manipulación 3D          |
 
 ---
 
 ## 🛠️ Tecnologías y Dependencias
 
-WildvineEngine se apoya en librerías estándar de la industria para garantizar estabilidad y rendimiento.
-
-| Tecnología / Librería | Uso dentro de WildvineEngine |
-| :--- | :--- |
-| **C++ 11+** | Lenguaje principal. Implementación de punteros inteligentes propios (`TSharedPointer`, `TUniquePtr`). |
-| **DirectX 11** | API Gráfica (Device, DeviceContext, SwapChain, Buffers, DepthStencil). |
-| **XNAMath** | Librería matemática para el manejo eficiente de Matrices (`XMMATRIX`) y Vectores (`XMFLOAT4X4`). |
-| **FBX SDK** | Importación y procesamiento de modelos 3D y geometría compleja. |
-| **Dear ImGui** | Creación de interfaces gráficas de usuario inmediatas y paneles del editor. |
-| **ImGuizmo** | Extensión de ImGui para la manipulación espacial 3D. |
-| **stb_image** | Carga de texturas e imágenes (PNG, JPG, etc.). |
+| Tecnología     | Uso                    |
+| -------------- | ---------------------- |
+| **C++ 11+**    | Lenguaje principal     |
+| **DirectX 11** | API gráfica            |
+| **XNAMath**    | Matemáticas            |
+| **FBX SDK**    | Importación de modelos |
+| **Dear ImGui** | Interfaz               |
+| **ImGuizmo**   | Manipulación 3D        |
+| **stb_image**  | Carga de texturas      |
 
 ---
 
 ## 📂 Estructura de Directorios
 
-Una vista general de cómo está organizado el repositorio:
-
-* `WildvineEngine/include/`: Archivos de cabecera (`.h`). Contiene las definiciones de sistemas (`SceneGraph`, `ECS`, `GUI`), utilidades del motor y envolturas de DirectX.
-* `WildvineEngine/source/`: Código fuente (`.cpp`). Implementaciones lógicas como `Window`, `Texture`, `BaseApp` y el pipeline gráfico.
-* `WildvineEngine/lib/`: Librerías estáticas precompiladas (Ej. `fbxlibs`, `zlib.lib`, `libxml2.lib`).
-* `WildvineEngine/Imgui/`: Código fuente y backends de ImGui/ImGuizmo preparados para DirectX 11 y Win32.
+```
+WildvineEngine/
+│
+├── include/     # Headers (.h)
+├── source/      # Implementación (.cpp)
+├── lib/         # Librerías externas
+└── Imgui/       # UI (ImGui + ImGuizmo)
+```
 
 ---
 
 ## 🚀 Requisitos de Compilación e Instalación
 
-1. **IDE:** Microsoft Visual Studio (Se recomienda la versión 2019 o 2022).
-2. **SDKs Requeridos:**
-   * Windows SDK (para incluir las dependencias nativas de `windows.h` y DirectX11).
-   * Autodesk FBX SDK.
-3. **Instrucciones:**
-   * Abre la solución `WildvineEngine_2010.sln` o la correspondiente a tu versión en Visual Studio.
-   * Selecciona la configuración de compilación adecuada (Debug/Release y x64).
-   * Compila (`Ctrl + Shift + B`) y ejecuta el proyecto.
+### Requisitos
+
+* Visual Studio 2019 o 2022
+* Windows SDK
+* Autodesk FBX SDK
+
+### Pasos
+
+1. Abrir la solución:
+
+   ```
+   WildvineEngine_2010.sln
+   ```
+
+2. Seleccionar configuración:
+
+   * Debug / Release
+   * x64
+
+3. Compilar:
+
+   ```
+   Ctrl + Shift + B
+   ```
+
+4. Ejecutar 🚀
 
 ---
-*Desarrollado con fines educativos y de investigación en arquitectura de motores de videojuegos.*
-```
+
+## 📌 Notas
+
+> Proyecto desarrollado con fines educativos y de investigación en arquitectura de motores de videojuegos.
+
