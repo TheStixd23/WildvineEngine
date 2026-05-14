@@ -5,6 +5,7 @@
  */
 #pragma once
 #include "Prerequisites.h"
+#include "Prerequisites.h"
 #include "ECS/Component.h"
 #include "Rendering/RenderTypes.h"
 

@@ -1,8 +1,3 @@
-/**
- * @file RenderScene.cpp
- * @brief Implementa la logica de RenderScene dentro del subsistema Rendering.
- * @ingroup rendering
- */
 #include "Rendering/RenderScene.h"
 
 void

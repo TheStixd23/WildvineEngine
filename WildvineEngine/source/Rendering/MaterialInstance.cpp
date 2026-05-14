@@ -1,8 +1,3 @@
-/**
- * @file MaterialInstance.cpp
- * @brief Implementa la logica de MaterialInstance dentro del subsistema Rendering.
- * @ingroup rendering
- */
 #include "Rendering/MaterialInstance.h"
 #include "DeviceContext.h"
 #include "Texture.h"
