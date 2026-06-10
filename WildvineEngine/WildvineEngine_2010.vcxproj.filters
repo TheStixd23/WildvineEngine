@@ -161,6 +161,9 @@
     <ClCompile Include="source\EditorViewportPass.cpp">
       <Filter>source</Filter>
     </ClCompile>
+    <ClCompile Include="source\Rendering\DeferredRenderer.cpp">
+      <Filter>source\Rendering</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="WildvineEngine.fx">
@@ -346,6 +349,13 @@
       <Filter>include\Rendering</Filter>
     </ClInclude>
     <ClInclude Include="include\Rendering\RenderTypes.h">
+      <Filter>include\Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Rendering\ISceneRendererer.h" />
+    <ClInclude Include="include\DeferredRenderer.h">
+      <Filter>include\Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Rendering\ISceneRenderer.h">
       <Filter>include\Rendering</Filter>
     </ClInclude>
   </ItemGroup>
