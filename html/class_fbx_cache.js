@@ -1,0 +1,78 @@
+var class_fbx_cache =
+[
+    [ "EFileFormat", "class_fbx_cache.html#ab8202edfb74969539e92a4d1734df3e7", [
+      [ "eUnknownFileFormat", "class_fbx_cache.html#ab8202edfb74969539e92a4d1734df3e7a0a10dbb146bdcf65a3ac98a03b3b4e48", null ],
+      [ "eMaxPointCacheV2", "class_fbx_cache.html#ab8202edfb74969539e92a4d1734df3e7a8ea5aa8db1a5a30035f4bb1bee8ff3a7", null ],
+      [ "eMayaCache", "class_fbx_cache.html#ab8202edfb74969539e92a4d1734df3e7a71f041c2c787346355e8ced9c3f29127", null ],
+      [ "eAlembic", "class_fbx_cache.html#ab8202edfb74969539e92a4d1734df3e7a1d9f43b0ddf3da5ec418c50f1d1b5549", null ]
+    ] ],
+    [ "EMCBinaryFormat", "class_fbx_cache.html#af3afea849dd371f0b5ecbe135d34b829", [
+      [ "eMCC", "class_fbx_cache.html#af3afea849dd371f0b5ecbe135d34b829af019bf2bf0ab0788673f38da0364570c", null ],
+      [ "eMCX", "class_fbx_cache.html#af3afea849dd371f0b5ecbe135d34b829a9f9f7cbd770451b48ea473902dd04568", null ]
+    ] ],
+    [ "EMCDataType", "class_fbx_cache.html#a80f82fa5f485ff6c46565ffb151998b3", [
+      [ "eUnknownData", "class_fbx_cache.html#a80f82fa5f485ff6c46565ffb151998b3a8b26bb731da16a3dbab5e918598872b8", null ],
+      [ "eDouble", "class_fbx_cache.html#a80f82fa5f485ff6c46565ffb151998b3a09e5d7151cf86e037c15b41af0d65e9d", null ],
+      [ "eDoubleArray", "class_fbx_cache.html#a80f82fa5f485ff6c46565ffb151998b3ae39b52564972de1cdcfde5ee56c5d4f2", null ],
+      [ "eDoubleVectorArray", "class_fbx_cache.html#a80f82fa5f485ff6c46565ffb151998b3a650d3bda5d6886776bee42118f711cb3", null ],
+      [ "eInt32Array", "class_fbx_cache.html#a80f82fa5f485ff6c46565ffb151998b3a0d06622346b6fc69daf634a1233217c7", null ],
+      [ "eFloatArray", "class_fbx_cache.html#a80f82fa5f485ff6c46565ffb151998b3ae331b4603d8eea0b4917d022530f7d07", null ],
+      [ "eFloatVectorArray", "class_fbx_cache.html#a80f82fa5f485ff6c46565ffb151998b3a67596d008f526a50a8f0d888d3f5dd6a", null ]
+    ] ],
+    [ "EMCFileCount", "class_fbx_cache.html#afa5d133385fbd74b59e619c692a9cc36", [
+      [ "eMCOneFile", "class_fbx_cache.html#afa5d133385fbd74b59e619c692a9cc36accc8c423e169fc778550575dcbd79bcc", null ],
+      [ "eMCOneFilePerFrame", "class_fbx_cache.html#afa5d133385fbd74b59e619c692a9cc36a443acbc8142a8e4fa3eeb2e4c3fea327", null ]
+    ] ],
+    [ "EMCSamplingType", "class_fbx_cache.html#a9d4d8e73c5e2f510b7884ceaee13a173", [
+      [ "eSamplingRegular", "class_fbx_cache.html#a9d4d8e73c5e2f510b7884ceaee13a173ab7d871fa76cb0e28a77bfa48858637f2", null ],
+      [ "eSamplingIrregular", "class_fbx_cache.html#a9d4d8e73c5e2f510b7884ceaee13a173afa23e18952e41deafe9237381018d023", null ]
+    ] ],
+    [ "AddChannel", "class_fbx_cache.html#a5cc3311b704a1405aae637cd8a30e1c8", null ],
+    [ "BeginWriteAt", "class_fbx_cache.html#ade715322780a6993e218251092f3c5c8", null ],
+    [ "CloseFile", "class_fbx_cache.html#a5964ea31f7b94da6ece571748da74d95", null ],
+    [ "Construct", "class_fbx_cache.html#ab657d22bd4736b458aeaa45724840108", null ],
+    [ "ConstructProperties", "class_fbx_cache.html#a7e2aebce96ed2a2138a220e4624ea0aa", null ],
+    [ "ConvertFromMCToPC2", "class_fbx_cache.html#a2710bc7d786f60e90d54c192c02af938", null ],
+    [ "ConvertFromPC2ToMC", "class_fbx_cache.html#a6ead5beab13a47d8ccfbc3730a6fb2fa", null ],
+    [ "Destruct", "class_fbx_cache.html#aae66dc4e401c2b6812a3a1ef962a32d5", null ],
+    [ "EnableMultiChannelFetching", "class_fbx_cache.html#a7dadad5c92261dc4a87638385b49b921", null ],
+    [ "EndWriteAt", "class_fbx_cache.html#a3df95a880da51b2ad2a957f212d76ba6", null ],
+    [ "GetAnimationRange", "class_fbx_cache.html#a974f809c072c4e71c4ff506259474aed", null ],
+    [ "GetCacheDataFileCount", "class_fbx_cache.html#ab7f00992af7a2f0179184cba81d890a2", null ],
+    [ "GetCacheDataFileName", "class_fbx_cache.html#aa4e5178a3f2a3b76ca96fcf24e326d3b", null ],
+    [ "GetCacheFileFormat", "class_fbx_cache.html#adabf432059b20e05cda5f3ddfab8f767", null ],
+    [ "GetCacheFileName", "class_fbx_cache.html#af1eb7de2d7a8ccb387d37f1c6da55c51", null ],
+    [ "GetCacheTimePerFrame", "class_fbx_cache.html#ab4407b29da65a695454e04731ba04200", null ],
+    [ "GetCacheType", "class_fbx_cache.html#a587ab185d45dbd55ed042f5f0a01f30b", null ],
+    [ "GetChannelCount", "class_fbx_cache.html#a1e2a07637eec39ae1eefb85fa29bc552", null ],
+    [ "GetChannelDataType", "class_fbx_cache.html#a9d9df7b63fda0e41676187395c325b9b", null ],
+    [ "GetChannelIndex", "class_fbx_cache.html#a1fb8b5cea553cd7e03278700279efc90", null ],
+    [ "GetChannelInterpretation", "class_fbx_cache.html#a7eaddf9e8f0f583c4573f7f3203e226d", null ],
+    [ "GetChannelName", "class_fbx_cache.html#a9a9f0069551a1445ea4856580123ea9a", null ],
+    [ "GetChannelPointCount", "class_fbx_cache.html#a347e4b40780ae2ae0511d62350a806f7", null ],
+    [ "GetChannelSampleCount", "class_fbx_cache.html#a2d0d0bd08638ef945a2e3aadcb26dee8", null ],
+    [ "GetChannelSamplingRate", "class_fbx_cache.html#a31d16dc4cc821fe13021991579632002", null ],
+    [ "GetChannelSamplingType", "class_fbx_cache.html#a5a2763e150c2687f989f1cf69a08cbc8", null ],
+    [ "GetDataCount", "class_fbx_cache.html#a983233fa5f9e457651e3bc0f6dfde219", null ],
+    [ "GetDataTime", "class_fbx_cache.html#a75e249b339bf5a2b1d4f713ee6697e2a", null ],
+    [ "GetFrameStartOffset", "class_fbx_cache.html#a73f12c006cfc12b696785c00df3fee58", null ],
+    [ "GetNextTimeWithData", "class_fbx_cache.html#ae79158c3d2966623035e6cb27f5f17fe", null ],
+    [ "GetPointCount", "class_fbx_cache.html#a944e876d22843e5aec776cf9c11d80ad", null ],
+    [ "GetSampleCount", "class_fbx_cache.html#a1aaeb41671716ea531a0b6402c59c878", null ],
+    [ "GetSamplingFrameRate", "class_fbx_cache.html#a2b18922a125946be8ff89940f21ee3f2", null ],
+    [ "IsOpen", "class_fbx_cache.html#af2ca87b431feef6ad4e106271f774672", null ],
+    [ "OpenFileForRead", "class_fbx_cache.html#afb4370a1e87dbf36b92f0fa61ea64db8", null ],
+    [ "OpenFileForWrite", "class_fbx_cache.html#a94fc2a702ee5c53cd41938c54cd4befd", null ],
+    [ "OpenFileForWrite", "class_fbx_cache.html#a430c418e921a876f442c064b301418be", null ],
+    [ "Read", "class_fbx_cache.html#a077130baffaab6448fbc984fec82f338", null ],
+    [ "Read", "class_fbx_cache.html#ac31fdd1b306da04cebdb51a6b1fd8521", null ],
+    [ "Read", "class_fbx_cache.html#a518383cfd39385e077ffc53be85aa728", null ],
+    [ "Read", "class_fbx_cache.html#a513dbb2b726eaf353528c8c6900ec77b", null ],
+    [ "Read", "class_fbx_cache.html#a91700888943ba42ce063617516f1159d", null ],
+    [ "SetCacheFileFormat", "class_fbx_cache.html#a334522b228cbf7b5eb488e15606bf622", null ],
+    [ "SetCacheFileName", "class_fbx_cache.html#a4adc82174046fe9bce5b0a415b6e6963", null ],
+    [ "Write", "class_fbx_cache.html#a9144c3dfd8441a1e73c759259fe1b9d9", null ],
+    [ "Write", "class_fbx_cache.html#a6a8522f9c661337e4a458c67bcf1f659", null ],
+    [ "Write", "class_fbx_cache.html#a4d1a6dbd1d65fa381ded138b7edbc219", null ],
+    [ "Write", "class_fbx_cache.html#ac83fc721f7eb4dbcb09dbb13efea76ce", null ]
+];

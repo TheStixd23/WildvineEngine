@@ -1,0 +1,25 @@
+var class_fbx_geometry_converter =
+[
+    [ "ComputeEdgeSmoothingFromNormals", "class_fbx_geometry_converter.html#acf3f1e784136f58c62d8516777825bf7", null ],
+    [ "ComputeEdgeSmoothingFromPolygonSmoothing", "class_fbx_geometry_converter.html#a65bb00283eddbd2e2c34b723e134d147", null ],
+    [ "ComputeGeometryControlPointsWeightedMapping", "class_fbx_geometry_converter.html#a3ee0a5af2ed44232dfda82fecd00a875", null ],
+    [ "ComputePolygonSmoothingFromEdgeSmoothing", "class_fbx_geometry_converter.html#a82e299d731d7e52443f7f0c7aaa61ce4", null ],
+    [ "ConvertNurbsSurfaceToNurbs", "class_fbx_geometry_converter.html#a75e27d8709f1d66d9c39b3eaedbf45c1", null ],
+    [ "ConvertNurbsSurfaceToNurbsInPlace", "class_fbx_geometry_converter.html#a82c9ea1ab75c8eefd555b4c538f3bbb7", null ],
+    [ "ConvertNurbsToNurbsSurface", "class_fbx_geometry_converter.html#a54590671f7c7fe086870d999bc57e523", null ],
+    [ "ConvertNurbsToNurbsSurfaceInPlace", "class_fbx_geometry_converter.html#ae8662fd4c468b6e18b276f3ef353fe2f", null ],
+    [ "ConvertPatchToNurbs", "class_fbx_geometry_converter.html#a8abd681dfef2058276c813546cd9db58", null ],
+    [ "ConvertPatchToNurbsInPlace", "class_fbx_geometry_converter.html#acc457be0a21f7566ff8bdd0d9a704b46", null ],
+    [ "ConvertPatchToNurbsSurface", "class_fbx_geometry_converter.html#aade3dba05861a191d2fdf67afa457296", null ],
+    [ "ConvertPatchToNurbsSurfaceInPlace", "class_fbx_geometry_converter.html#afd5bc619771c69c680b2da7ae4d0c2e4", null ],
+    [ "EmulateNormalsByPolygonVertex", "class_fbx_geometry_converter.html#a3c79ca6723b51b564842b9563f67102f", null ],
+    [ "FlipNurbs", "class_fbx_geometry_converter.html#a0d8518617441129d74d5878015ca58df", null ],
+    [ "FlipNurbsSurface", "class_fbx_geometry_converter.html#a503a0bff5052f07873f2912e473d575a", null ],
+    [ "MergeMeshes", "class_fbx_geometry_converter.html#aed94b4b7346f8040406066a510c8c104", null ],
+    [ "RecenterSceneToWorldCenter", "class_fbx_geometry_converter.html#a26aa6da6240c0293e449958f8a58a779", null ],
+    [ "RemoveBadPolygonsFromMeshes", "class_fbx_geometry_converter.html#a92a4781ea3dff410a61207c8835117b4", null ],
+    [ "SplitMeshesPerMaterial", "class_fbx_geometry_converter.html#aed7a7dd03d949e08e008262fd5b57421", null ],
+    [ "SplitMeshPerMaterial", "class_fbx_geometry_converter.html#a3b48927a9d9394344598d1e9e80499bf", null ],
+    [ "Triangulate", "class_fbx_geometry_converter.html#a998707152306423d35b2db76f6a34ad9", null ],
+    [ "Triangulate", "class_fbx_geometry_converter.html#a472eeb2876199b239ce84807a5b4812b", null ]
+];

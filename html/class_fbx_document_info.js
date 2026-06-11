@@ -1,0 +1,28 @@
+var class_fbx_document_info =
+[
+    [ "Clear", "class_fbx_document_info.html#a6a372ab1bf0c0e5452230a42c21f0d23", null ],
+    [ "ConstructProperties", "class_fbx_document_info.html#ac61c4078dc963ce2c7cd164376a29817", null ],
+    [ "Copy", "class_fbx_document_info.html#acfc4627efe4a738d641cfc5b233989d4", null ],
+    [ "Destruct", "class_fbx_document_info.html#af7e5f2d64c0d3f340ef7b7def8a41721", null ],
+    [ "GetSceneThumbnail", "class_fbx_document_info.html#a7bc65a45dcb64b91360f443c8e9b89d7", null ],
+    [ "SetSceneThumbnail", "class_fbx_document_info.html#ab9498e580c68b5ec5aa38bfe4c4f6123", null ],
+    [ "EmbeddedUrl", "class_fbx_document_info.html#a650c0d0532a87408ccea6607a2c437bf", null ],
+    [ "LastSaved", "class_fbx_document_info.html#a1f7b1001a8791ee8fc9f9655c543c84e", null ],
+    [ "LastSaved_ApplicationName", "class_fbx_document_info.html#a336bfd3129c31d0739e87e19a344035b", null ],
+    [ "LastSaved_ApplicationVendor", "class_fbx_document_info.html#a051cf70eb77b5b8278ebb9a88af20bef", null ],
+    [ "LastSaved_ApplicationVersion", "class_fbx_document_info.html#a5cffe99a205491edc2a53cf4dfe6d7ff", null ],
+    [ "LastSaved_DateTime_GMT", "class_fbx_document_info.html#a46e21e243dfdbfed83cac11774671ac4", null ],
+    [ "LastSavedUrl", "class_fbx_document_info.html#a8a4eb2393037c8989307f780cab77ca1", null ],
+    [ "mAuthor", "class_fbx_document_info.html#a94f6f7586adf1ae4c519f0fd0ab63e7f", null ],
+    [ "mComment", "class_fbx_document_info.html#ae26126fbe729919670ddc4140a80f517", null ],
+    [ "mKeywords", "class_fbx_document_info.html#abd88716fcd0a141d04b3ffbd5b3b22e1", null ],
+    [ "mRevision", "class_fbx_document_info.html#a5566da0013c015bb4b58f0eb13814a9a", null ],
+    [ "mSubject", "class_fbx_document_info.html#a2ef18e00ea86b5ebb46cab156ee1dffb", null ],
+    [ "Original", "class_fbx_document_info.html#acb08111b968a17d25bdb2e01391500b8", null ],
+    [ "Original_ApplicationName", "class_fbx_document_info.html#abcddf84735f7ceac288ed1990c837f25", null ],
+    [ "Original_ApplicationVendor", "class_fbx_document_info.html#afe6f02a61f882355521e6f1e45de0a9e", null ],
+    [ "Original_ApplicationVersion", "class_fbx_document_info.html#ab995992091af994047deccc609f1bcfd", null ],
+    [ "Original_DateTime_GMT", "class_fbx_document_info.html#adbfedbef249bc1ef77e06ad01e5067c6", null ],
+    [ "Original_FileName", "class_fbx_document_info.html#aa694d414acff41e98cd5f130c7091873", null ],
+    [ "Url", "class_fbx_document_info.html#a074e6706550f89bcef9152030a522f11", null ]
+];

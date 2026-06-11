@@ -1,0 +1,19 @@
+var searchData=
+[
+  ['ikpivot_0',['IKPivot',['../class_fbx_marker.html#a5bd3a4b16e95b47ea5d391941cb6f00c',1,'FbxMarker']]],
+  ['inch_1',['Inch',['../class_fbx_system_unit.html#a88862a2baeb2e510e1f39ef9d09aa0c4',1,'FbxSystemUnit']]],
+  ['indexbuffer_2',['indexBuffer',['../struct_submesh.html#a12d1a083d7c09d3955d1eaf308918e6c',1,'Submesh']]],
+  ['indexcount_3',['indexCount',['../struct_submesh.html#a068da68c0ec7a9a6edef81a660036730',1,'Submesh']]],
+  ['inherittype_4',['InheritType',['../class_fbx_node.html#a649fc6e97217d0105e65b712d2b0053f',1,'FbxNode']]],
+  ['innerangle_5',['InnerAngle',['../class_fbx_light.html#aced336586b1b3a1b8d685bf11ef21216',1,'FbxLight']]],
+  ['intensity_6',['Intensity',['../class_fbx_light.html#a3fc7a2684e3ab3cbd944825afd263433',1,'FbxLight']]],
+  ['intensity_7',['intensity',['../struct_light_data.html#ad3dbde00547467a1a9b42c33e8e2eb40',1,'LightData']]],
+  ['interaxialseparation_8',['InteraxialSeparation',['../class_fbx_camera_stereo.html#a93f63eb9bb9d1a9829db054abce1289d',1,'FbxCameraStereo']]],
+  ['interestposition_9',['InterestPosition',['../class_fbx_camera.html#a686036fc4f1794fe7f3b74f978e8d174',1,'FbxCamera']]],
+  ['invertx_10',['InvertX',['../class_fbx_camera_manipulator.html#aebb2e55534a051995499d73cd1742511',1,'FbxCameraManipulator']]],
+  ['inverty_11',['InvertY',['../class_fbx_camera_manipulator.html#a9e9a2e653b6ef9f1d3da31110f26fec3',1,'FbxCameraManipulator']]],
+  ['isactiveproxy_12',['IsActiveProxy',['../class_fbx_scene_reference.html#aab3571ac4fd553d5f3fbb3710c39adac',1,'FbxSceneReference']]],
+  ['isloaded_13',['IsLoaded',['../class_fbx_scene_reference.html#a971731e9c034714443001ee94de52562',1,'FbxSceneReference']]],
+  ['islocked_14',['IsLocked',['../class_fbx_scene_reference.html#a5b7de2086b4f2999c7473329e8887168',1,'FbxSceneReference']]],
+  ['isoriginalproxy_15',['IsOriginalProxy',['../class_fbx_scene_reference.html#a5bf9c05304a408f9436a0677c3b4acef',1,'FbxSceneReference']]]
+];
