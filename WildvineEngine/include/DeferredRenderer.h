@@ -1,6 +1,6 @@
 /**
  * @file DeferredRenderer.h
- * @brief Declara la API de DeferredRenderer dentro del subsistema Rendering de WildvineEngine.
+ * @brief Declara la API de DeferredRenderer dentro del subsistema Rendering.
  * @ingroup rendering
  */
 #pragma once
@@ -23,209 +23,232 @@ class Material;
 
 /**
  * @class DeferredRenderer
- * @brief Implementa el pipeline de renderizado diferido (Deferred Shading).
- * * Esta clase separa la evaluación de la geometría de la evaluación de la iluminación.
- * Primero almacena propiedades físicas y espaciales en un G-Buffer y posteriormente
- * resuelve la luz en un pase de pantalla completa, optimizando el costo en escenas
- * con múltiples fuentes de luz dinámica.
+ * @brief Implementa un pipeline diferido con GBuffer y lighting pass.
+ *
+ * El renderer usa deferred shading para superficies opacas y mantiene un subpass
+ * forward para transparencias, de modo que el pipeline del editor siga funcionando
+ * con el contenido actual del engine.
  */
-class DeferredRenderer : public ISceneRenderer {
+class
+	DeferredRenderer : public ISceneRenderer {
 public:
-    /**
-     * @brief Inicializa los recursos base del motor de renderizado diferido.
-     * @param device Dispositivo gráfico utilizado para crear buffers y estados.
-     * @return HRESULT S_OK si se inicializa correctamente.
-     */
-    HRESULT init(Device& device) override;
+	/**
+	 * @brief Inicializa el renderizador y sus recursos en la GPU.
+	 * @param device Referencia al dispositivo logico (Device).
+	 * @return HRESULT S_OK si se inicializa correctamente.
+	 */
+	HRESULT
+		init(Device& device) override;
 
-    /**
-     * @brief Redimensiona los Render Targets del G-Buffer al cambiar el tamaño de la ventana.
-     * @param device Dispositivo gráfico.
-     * @param width Nuevo ancho de resolución.
-     * @param height Nuevo alto de resolución.
-     */
-    void resize(Device& device, unsigned int width, unsigned int height) override;
+	/**
+	 * @brief Reajusta los targets y resoluciones del renderizador al cambiar el tamano de la ventana.
+	 * @param device Referencia al dispositivo.
+	 * @param width Nuevo ancho en pixeles.
+	 * @param height Nuevo alto en pixeles.
+	 */
+	void
+		resize(Device& device, unsigned int width, unsigned int height) override;
 
-    /**
-     * @brief Ejecuta la secuencia completa de dibujado (Shadows, Geometry, Lighting, Forward/Transparent).
-     * @param deviceContext Contexto de dibujado de la API gráfica.
-     * @param camera Cámara desde la cual se observa la escena.
-     * @param scene Escena con los objetos opacos, transparentes y luces a procesar.
-     * @param viewportPass Render Target de destino final para la salida del frame.
-     */
-    void render(DeviceContext& deviceContext,
-        const Camera& camera,
-        RenderScene& scene,
-        EditorViewportPass& viewportPass) override;
+	/**
+	 * @brief Ejecuta el dibujado general de la escena utilizando Deferred Shading.
+	 * @param deviceContext Contexto del dispositivo para emitir comandos.
+	 * @param camera Camara actual de renderizado.
+	 * @param scene Contenedor de la geometria y luces.
+	 * @param viewportPass El paso del viewport donde sera dibujado.
+	 */
+	void
+		render(DeviceContext& deviceContext,
+			const Camera& camera,
+			RenderScene& scene,
+			EditorViewportPass& viewportPass) override;
 
-    /**
-     * @brief Libera los recursos de GPU asociados a texturas, buffers y estados.
-     */
-    void destroy() override;
+	/**
+	 * @brief Libera de memoria los buffers, shaders y targets creados.
+	 */
+	void
+		destroy() override;
 
-    // =========================================================================
-    // Getters para Shader Resource Views (SRV) utilizados en debug o post-procesado
-    // =========================================================================
+	/**
+	 * @brief Obtiene la vista de recurso correspondiente al Mapa de Sombras.
+	 * @return ID3D11ShaderResourceView*
+	 */
+	ID3D11ShaderResourceView*
+		getShadowMapSRV() const override { return m_shadowDepthSRV.m_textureFromImg; }
 
-    ID3D11ShaderResourceView* getShadowMapSRV() const override { return m_shadowDepthSRV.m_textureFromImg; }
-    ID3D11ShaderResourceView* getPreShadowSRV() const override { return m_preShadowDebugPass.getSRV(); }
-    ID3D11ShaderResourceView* getGBufferAlbedoMetallicSRV() const override { return m_gBufferAlbedoMetallicSRV.m_textureFromImg; }
-    ID3D11ShaderResourceView* getGBufferNormalRoughnessSRV() const override { return m_gBufferNormalRoughnessSRV.m_textureFromImg; }
-    ID3D11ShaderResourceView* getGBufferWorldAoSRV() const override { return m_gBufferWorldAoSRV.m_textureFromImg; }
-    ID3D11ShaderResourceView* getGBufferEmissiveAlphaSRV() const override { return m_gBufferEmissiveAlphaSRV.m_textureFromImg; }
+	/**
+	 * @brief Obtiene la vista de recurso de depuracion para el pre-pase de sombras.
+	 * @return ID3D11ShaderResourceView*
+	 */
+	ID3D11ShaderResourceView*
+		getPreShadowSRV() const override { return m_preShadowDebugPass.getSRV(); }
 
-    /**
-     * @brief Habilita o deshabilita la visualización de la máscara de sombras por debug.
-     */
-    void setShadowFactorDebugEnabled(bool enabled) override { m_shadowFactorDebugEnabled = enabled; }
+	/**
+	 * @brief Obtiene la vista de recurso del pase del G-Buffer de Albedo y Metallic.
+	 * @return ID3D11ShaderResourceView*
+	 */
+	ID3D11ShaderResourceView*
+		getGBufferAlbedoMetallicSRV() const override { return m_gBufferAlbedoMetallicSRV.m_textureFromImg; }
 
-    /**
-     * @brief Establece el modo de visualización de debug del G-Buffer (ej. ver solo Normales o Albedo).
-     */
-    void setDeferredDebugViewMode(int mode) override { m_deferredDebugViewMode = mode; }
+	/**
+	 * @brief Obtiene la vista de recurso del pase del G-Buffer de Normales y Roughness.
+	 * @return ID3D11ShaderResourceView*
+	 */
+	ID3D11ShaderResourceView*
+		getGBufferNormalRoughnessSRV() const override { return m_gBufferNormalRoughnessSRV.m_textureFromImg; }
 
-    const char* getDebugName() const override { return "DeferredRenderer"; }
+	/**
+	 * @brief Obtiene la vista de recurso del pase del G-Buffer de World Position y Ambient Occlusion.
+	 * @return ID3D11ShaderResourceView*
+	 */
+	ID3D11ShaderResourceView*
+		getGBufferWorldAoSRV() const override { return m_gBufferWorldAoSRV.m_textureFromImg; }
 
-private:
-    // =========================================================================
-    // Lógica interna del Pipeline de Rendering
-    // =========================================================================
+	/**
+	 * @brief Obtiene la vista de recurso del pase del G-Buffer de canal Emisivo y Alpha.
+	 * @return ID3D11ShaderResourceView*
+	 */
+	ID3D11ShaderResourceView*
+		getGBufferEmissiveAlphaSRV() const override { return m_gBufferEmissiveAlphaSRV.m_textureFromImg; }
 
-    /** @brief Clasifica y ordena los objetos de la escena en colas (opaca y transparente). */
-    void buildQueues(RenderScene& scene, const Camera& camera);
-    /** @brief Actualiza el Constant Buffer principal con los datos de la cámara y de la escena actual. */
-    void updatePerFrame(const Camera& camera, const RenderScene& scene, DeviceContext& deviceContext);
-    /** @brief Recalcula las matrices de las luces direccionales para la proyección de sombras. */
-    void updateLightMatrices(const Camera& camera, const RenderScene& scene);
+	/**
+	 * @brief Conmuta la visibilidad de la capa de depuracion visual para las sombras.
+	 * @param enabled Booleano de activacion.
+	 */
+	void
+		setShadowFactorDebugEnabled(bool enabled) override { m_shadowFactorDebugEnabled = enabled; }
 
-    /** @brief Ejecuta el flujo principal de renderizado hacia un objetivo específico. */
-    void renderSceneToTarget(DeviceContext& deviceContext, RenderScene& scene, EditorViewportPass& targetPass, bool applyShadows);
+	/**
+	 * @brief Cambia el modo de depuracion del G-Buffer (vista de Albedo, Normales, etc).
+	 * @param mode El identificador en formato int.
+	 */
+	void
+		setDeferredDebugViewMode(int mode) override { m_deferredDebugViewMode = mode; }
 
-    /** @brief Asocia los múltiples Render Targets del G-Buffer al pipeline de salida. */
-    void bindGBufferTargets(DeviceContext& deviceContext, ID3D11DepthStencilView* depthStencilView);
-    /** @brief Asocia el Render Target de salida final. */
-    void bindFinalTarget(DeviceContext& deviceContext, ID3D11RenderTargetView* renderTargetView, ID3D11DepthStencilView* depthStencilView);
-    /** @brief Desvincula las texturas del G-Buffer para que puedan ser leídas en el pase de luz. */
-    void clearDeferredSRVs(DeviceContext& deviceContext);
-
-    /** @brief Dibuja la geometría opaca llenando las texturas del G-Buffer. */
-    void renderGeometryPass(DeviceContext& deviceContext);
-    void renderGeometryObject(DeviceContext& deviceContext, const RenderObject& object);
-
-    /** @brief Combina los datos del G-Buffer para resolver la ecuación de iluminación. */
-    void renderLightingPass(DeviceContext& deviceContext);
-
-    /** @brief Renderiza el Skybox como fondo de la escena. */
-    void renderSkyboxPass(DeviceContext& deviceContext, RenderScene& scene);
-    /** @brief Dibuja objetos transparentes utilizando Forward Rendering. */
-    void renderTransparentPass(DeviceContext& deviceContext);
-    void renderForwardObject(DeviceContext& deviceContext, const RenderObject& object, RenderPassType passType);
-
-    /** @brief Genera el mapa de profundidad para calcular las sombras. */
-    void renderShadowPass(DeviceContext& deviceContext);
-    void renderShadowObject(DeviceContext& deviceContext, const RenderObject& object);
-
-    // =========================================================================
-    // Métodos de inicialización de recursos
-    // =========================================================================
-
-    HRESULT createShadowResources(Device& device);
-    HRESULT createGBufferResources(Device& device, unsigned int width, unsigned int height);
-    HRESULT createGBufferTarget(Device& device,
-        unsigned int width,
-        unsigned int height,
-        DXGI_FORMAT format,
-        Texture& texture,
-        Texture& srv,
-        RenderTargetView& rtv);
-    HRESULT createLightingResources(Device& device);
-    HRESULT createFullScreenQuad(Device& device);
-    HRESULT createBlendStates(Device& device);
-    ID3D11BlendState* resolveBlendState(const Material* material) const;
+	/**
+	 * @brief Obtiene un string con el nombre descriptivo de este renderer.
+	 * @return const char*
+	 */
+	const char*
+		getDebugName() const override { return "DeferredRenderer"; }
 
 private:
-    // =========================================================================
-    // Constant Buffers
-    // =========================================================================
-    Buffer m_perFrameBuffer;       /**< Datos globales de la escena y cámara por frame. */
-    Buffer m_perObjectBuffer;      /**< Datos de transformación (World Matrix) por objeto. */
-    Buffer m_perMaterialBuffer;    /**< Propiedades físicas del material del objeto. */
-    Buffer m_lightingDebugBuffer;  /**< Configuración de depuración para visualización de luz. */
-    Buffer m_fullscreenVertexBuffer;
-    Buffer m_fullscreenIndexBuffer;
+	/** @brief Clasifica los objetos visibles en colas opacas y transparentes. */
+	void buildQueues(RenderScene& scene, const Camera& camera);
+	/** @brief Actualiza los buffers constantes a nivel fotograma. */
+	void updatePerFrame(const Camera& camera, const RenderScene& scene, DeviceContext& deviceContext);
+	/** @brief Actualiza la proyeccion ortografica y matriz de la luz direccional principal. */
+	void updateLightMatrices(const Camera& camera, const RenderScene& scene);
+	/** @brief Orquesta el pipeline general dibujando los pases sobre el target objetivo. */
+	void renderSceneToTarget(DeviceContext& deviceContext, RenderScene& scene, EditorViewportPass& targetPass, bool applyShadows);
+	/** @brief Vincula los multiples Render Targets del G-Buffer. */
+	void bindGBufferTargets(DeviceContext& deviceContext, ID3D11DepthStencilView* depthStencilView);
+	/** @brief Restaurar el Render Target View por defecto o destino final. */
+	void bindFinalTarget(DeviceContext& deviceContext, ID3D11RenderTargetView* renderTargetView, ID3D11DepthStencilView* depthStencilView);
+	/** @brief Limpia el estado de los SRV para evitar colisiones de recurso con DX11. */
+	void clearDeferredSRVs(DeviceContext& deviceContext);
+	/** @brief Ejecuta el trazado de la geometria estandar contra el G-Buffer. */
+	void renderGeometryPass(DeviceContext& deviceContext);
+	/** @brief Emite un objeto de la cola opaca hacia los shaders pasivos. */
+	void renderGeometryObject(DeviceContext& deviceContext, const RenderObject& object);
+	/** @brief Procesa el G-Buffer a traves del shader direccional/diferido. */
+	void renderLightingPass(DeviceContext& deviceContext);
+	/** @brief Renderiza el Skybox usando manipulacion de Depth Stencil. */
+	void renderSkyboxPass(DeviceContext& deviceContext, RenderScene& scene);
+	/** @brief Pinta la geometria indexada de la cola transparente de forma Forward. */
+	void renderTransparentPass(DeviceContext& deviceContext);
+	/** @brief Subrutina para despachar geometria en un pase tradicional Forward. */
+	void renderForwardObject(DeviceContext& deviceContext, const RenderObject& object, RenderPassType passType);
+	/** @brief Ejecuta la captura de profundidad de los modelos desde la vista de la luz. */
+	void renderShadowPass(DeviceContext& deviceContext);
+	/** @brief Emite el subset opaco hacia el buffer de profundidad para generar sombras. */
+	void renderShadowObject(DeviceContext& deviceContext, const RenderObject& object);
+	/** @brief Pre-aloja memoria en VRAM para las texturas del Shadow Map. */
+	HRESULT createShadowResources(Device& device);
+	/** @brief Inicializa el grupo completo de texturas para MRT del G-Buffer. */
+	HRESULT createGBufferResources(Device& device, unsigned int width, unsigned int height);
+	/** @brief Funcion generica de soporte para inicializar targets del G-Buffer. */
+	HRESULT createGBufferTarget(Device& device,
+		unsigned int width,
+		unsigned int height,
+		DXGI_FORMAT format,
+		Texture& texture,
+		Texture& srv,
+		RenderTargetView& rtv);
+	/** @brief Compila y sube a memoria los Shaders encargados de la iluminacion de pixeles. */
+	HRESULT createLightingResources(Device& device);
+	/** @brief Genera una primitiva simple (Quad) que llenara la vista para el lighting pass. */
+	HRESULT createFullScreenQuad(Device& device);
+	/** @brief Crea los estados de operaciones de mezcla Alpha de DX11. */
+	HRESULT createBlendStates(Device& device);
+	/** @brief Obtiene el BlendState requerido en base a los datos fisicos del Material actual. */
+	ID3D11BlendState* resolveBlendState(const Material* material) const;
 
-    // =========================================================================
-    // Estados de Pipeline (Depth & Blend)
-    // =========================================================================
-    DepthStencilState m_transparentDepthStencil;
-    DepthStencilState m_disabledDepthStencil;
-    DepthStencilState m_shadowDepthStencil;
+private:
+	Buffer m_perFrameBuffer;             /**< Buffer constante para matrices globales y tiempo. */
+	Buffer m_perObjectBuffer;            /**< Buffer constante atado a la posicion de la matriz del modelo. */
+	Buffer m_perMaterialBuffer;          /**< Buffer constante con los valores PBR directos. */
+	Buffer m_lightingDebugBuffer;        /**< Buffer enlazado para inyectar flags de visualizacion. */
+	Buffer m_fullscreenVertexBuffer;     /**< Buffer de vertices para el calculo de iluminacion a pantalla. */
+	Buffer m_fullscreenIndexBuffer;      /**< Buffer de indizado del Quad. */
 
-    ID3D11BlendState* m_alphaBlendState = nullptr;
-    ID3D11BlendState* m_opaqueBlendState = nullptr;
-    ID3D11BlendState* m_additiveBlendState = nullptr;
-    ID3D11BlendState* m_premultipliedBlendState = nullptr;
-    float m_blendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	DepthStencilState m_transparentDepthStencil; /**< Estado de profundidad que evita sobreescritura Z. */
+	DepthStencilState m_disabledDepthStencil;    /**< Estado de profundidad en desactivacion forzosa. */
+	DepthStencilState m_shadowDepthStencil;      /**< Configuracion para trazado correcto del Shadow Bias. */
 
-    // =========================================================================
-    // Recursos para el mapeo de sombras (Shadow Mapping)
-    // =========================================================================
-    Texture m_shadowDepthTexture;
-    Texture m_shadowDepthSRV;
-    DepthStencilView m_shadowDSV;
-    ShaderProgram m_shadowShader;
-    RasterizerState m_shadowRasterizer;
-    unsigned int m_shadowMapSize = 2048; /**< Resolución base del Shadow Map. */
+	ID3D11BlendState* m_alphaBlendState = nullptr;         /**< Estado para fusion de texturas semitransparentes. */
+	ID3D11BlendState* m_opaqueBlendState = nullptr;        /**< Estado opaco sin evaluacion de translucidez. */
+	ID3D11BlendState* m_additiveBlendState = nullptr;      /**< Mezclado de suma logica en hardware para luces. */
+	ID3D11BlendState* m_premultipliedBlendState = nullptr; /**< Mezclado con factores RGB previamente multiplicados. */
+	float m_blendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };   /**< Vector 4 multiplicativo global para los estados. */
 
-    // =========================================================================
-    // Shaders y estados para la fase Deferred
-    // =========================================================================
-    ShaderProgram m_gBufferShader;
-    ShaderProgram m_deferredLightingShader;
-    SamplerState m_lightingSampler;
-    RasterizerState m_fullscreenRasterizer;
+	Texture m_shadowDepthTexture;        /**< Target Texture con el mapa de profudidad lumina. */
+	Texture m_shadowDepthSRV;            /**< Vista de lectura inyectable en la generacion diferida. */
+	DepthStencilView m_shadowDSV;        /**< Vista DSV para procesar el Shadow Mapping. */
+	ShaderProgram m_shadowShader;        /**< Shader encargado de evaluar la profundidad Z. */
+	RasterizerState m_shadowRasterizer;  /**< Rasterizador solido frontal. */
+	unsigned int m_shadowMapSize = 2048; /**< Resolucion interna forzada de la cuadricula de sombras. */
 
-    // =========================================================================
-    // G-Buffer Render Targets y Texturas
-    // =========================================================================
-    Texture m_gBufferAlbedoMetallicTexture;
-    Texture m_gBufferAlbedoMetallicSRV;
-    RenderTargetView m_gBufferAlbedoMetallicRTV;
+	ShaderProgram m_gBufferShader;           /**< Shaders vinculados a la creacion del G-Buffer Base. */
+	ShaderProgram m_deferredLightingShader;  /**< Shaders PBR que leen el G-Buffer en Screen-Space. */
+	SamplerState m_lightingSampler;          /**< Parametro muestral aplicado a los textmap diferidos. */
+	RasterizerState m_fullscreenRasterizer;  /**< Rasterizador generico util al Quad de evaluacion de luces. */
 
-    Texture m_gBufferNormalRoughnessTexture;
-    Texture m_gBufferNormalRoughnessSRV;
-    RenderTargetView m_gBufferNormalRoughnessRTV;
+	Texture m_gBufferAlbedoMetallicTexture;
+	Texture m_gBufferAlbedoMetallicSRV;
+	RenderTargetView m_gBufferAlbedoMetallicRTV;  /**< Target del MRT para Color y Metalizado. */
 
-    Texture m_gBufferWorldAoTexture;
-    Texture m_gBufferWorldAoSRV;
-    RenderTargetView m_gBufferWorldAoRTV;
+	Texture m_gBufferNormalRoughnessTexture;
+	Texture m_gBufferNormalRoughnessSRV;
+	RenderTargetView m_gBufferNormalRoughnessRTV; /**< Target del MRT para Vectores Normales y Rugosidad. */
 
-    Texture m_gBufferEmissiveAlphaTexture;
-    Texture m_gBufferEmissiveAlphaSRV;
-    RenderTargetView m_gBufferEmissiveAlphaRTV;
+	Texture m_gBufferWorldAoTexture;
+	Texture m_gBufferWorldAoSRV;
+	RenderTargetView m_gBufferWorldAoRTV;         /**< Target del MRT para Oclusion Ambiental y Posicion del mundo. */
 
-    // =========================================================================
-    // Variables de control y colas
-    // =========================================================================
-    EditorViewportPass m_preShadowDebugPass;
-    bool m_applyShadows = true;
-    unsigned int m_renderWidth = 1280;
-    unsigned int m_renderHeight = 720;
+	Texture m_gBufferEmissiveAlphaTexture;
+	Texture m_gBufferEmissiveAlphaSRV;
+	RenderTargetView m_gBufferEmissiveAlphaRTV;   /**< Target del MRT para Canal Alfa y pixeles Emisivos. */
 
-    CBPerFrame m_cbPerFrame{};
-    CBPerObject m_cbPerObject{};
-    CBPerMaterial m_cbPerMaterial{};
+	EditorViewportPass m_preShadowDebugPass;  /**< Captura especial opcional vinculada al editor GUI. */
+	bool m_applyShadows = true;               /**< Switch que autoriza la multiplicacion del buffer de sombras. */
+	unsigned int m_renderWidth = 1280;        /**< Variable que almacena el ancho actual del render viewport. */
+	unsigned int m_renderHeight = 720;        /**< Variable que almacena la altura actual del render viewport. */
 
-    struct DeferredLightingDebugData {
-        int DebugViewMode = 0;
-        float ShadowStrength = 1.0f;
-        float pad0 = 0.0f;
-        float pad1 = 0.0f;
-    } m_lightingDebugData{};
+	CBPerFrame m_cbPerFrame{};                /**< Estructura C++ para empaquetado del CBuffer de Escena. */
+	CBPerObject m_cbPerObject{};              /**< Estructura C++ para empaquetado del CBuffer Objeto. */
+	CBPerMaterial m_cbPerMaterial{};          /**< Estructura C++ para empaquetado del CBuffer Material PBR. */
 
-    bool m_shadowFactorDebugEnabled = false;
-    int m_deferredDebugViewMode = 0;
+	/** @brief Estructura temporal usada para depuracion diferida en memoria. */
+	struct DeferredLightingDebugData {
+		int DebugViewMode = 0;
+		float ShadowStrength = 1.0f;
+		float pad0 = 0.0f;
+		float pad1 = 0.0f;
+	} m_lightingDebugData{};
 
-    std::vector<const RenderObject*> m_opaqueQueue;      /**< Cola de renderizado para geometría opaca. */
-    std::vector<const RenderObject*> m_transparentQueue; /**< Cola de renderizado para geometría transparente. */
+	bool m_shadowFactorDebugEnabled = false;  /**< Activa un override visual sobre las colas de sombra generadas. */
+	int m_deferredDebugViewMode = 0;          /**< Valor entero indexado con las salidas visuales de ImGui. */
+
+	std::vector<const RenderObject*> m_opaqueQueue;      /**< Cola MRT diferida de modelos estandar. */
+	std::vector<const RenderObject*> m_transparentQueue; /**< Cola Forward separada con reordenamiento para alpha blend. */
 };
