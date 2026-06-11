@@ -86,4 +86,8 @@ flowchart LR
 3.  Verifica las rutas de inclusión en tu Linker asegurándote de apuntar a `lib/fbxlibs/`.
 4.  Selecciona la arquitectura de compilación **x64** y ejecuta el *build*.
 
+Doxygen:
+https://drive.google.com/drive/folders/1JrPXv_wu8mGjy6mKAnX-YNary5Uzv7hl?usp=sharing
+(no supe hacer lo de las pages y chat me confundió más)
+<img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/acfe8a4a-f229-45e0-96e6-29db2c1577da" />
 
