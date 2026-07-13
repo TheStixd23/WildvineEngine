@@ -19,18 +19,18 @@ Window::init(HINSTANCE hInstance, int nCmdShow, WNDPROC wndproc, BaseApp* app) {
     wcex.hCursor = LoadCursor(NULL, IDC_ARROW);
     wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wcex.lpszMenuName = NULL;
-    wcex.lpszClassName = "TutorialWindowClass";
+    wcex.lpszClassName = "WildvineStudioWindowClass";
     wcex.hIconSm = LoadIcon(wcex.hInstance, (LPCTSTR)IDI_TUTORIAL1);
     if (!RegisterClassEx(&wcex))
         return E_FAIL;
 
     // Create window
-    RECT rc = { 0, 0, 1200, 950 };
+    RECT rc = { 0, 0, 1360, 820 };
     m_rect = rc;
 
     AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
 
-    m_hWnd = CreateWindow("TutorialWindowClass",
+    m_hWnd = CreateWindow("WildvineStudioWindowClass",
         m_windowName.c_str(),
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT,

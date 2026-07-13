@@ -13,8 +13,8 @@
 
 static ImGuizmo::OPERATION mCurrentGizmoOperation(ImGuizmo::TRANSLATE);
 
-static const ImVec4 kAccent = ImVec4(0.55f, 0.35f, 0.90f, 1.0f);
-static const ImVec4 kAccentHi = ImVec4(0.70f, 0.50f, 1.00f, 1.0f);
+static const ImVec4 kAccent = ImVec4(0.10f, 0.68f, 0.52f, 1.0f);
+static const ImVec4 kAccentHi = ImVec4(0.30f, 0.92f, 0.70f, 1.0f);
 
 void GUI::awake() {}
 
@@ -22,6 +22,7 @@ void GUI::init(Window& window, Device& device, DeviceContext& deviceContext) {
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
+	io.IniFilename = "WildvineLayout.ini";
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
@@ -46,50 +47,91 @@ void GUI::appleLiquidStyle(float opacity, ImVec4 accent) {
 	ImGuiStyle& style = ImGui::GetStyle();
 	ImVec4* colors = style.Colors;
 
-	style.WindowRounding = 8.0f;  style.ChildRounding = 6.0f;  style.FrameRounding = 5.0f;
-	style.PopupRounding = 6.0f;   style.TabRounding = 6.0f;    style.GrabRounding = 5.0f;
-	style.ScrollbarRounding = 12.0f; style.WindowBorderSize = 1.0f; style.FrameBorderSize = 0.0f;
-	style.WindowPadding = ImVec2(12.0f, 12.0f); style.FramePadding = ImVec2(10.0f, 6.0f);
-	style.ItemSpacing = ImVec2(10.0f, 8.0f);    style.ItemInnerSpacing = ImVec2(8.0f, 6.0f);
-	style.IndentSpacing = 18.0f; style.ScrollbarSize = 13.0f; style.GrabMinSize = 10.0f;
-	style.WindowTitleAlign = ImVec2(0.02f, 0.5f); style.WindowMenuButtonPosition = ImGuiDir_None;
+	// Wildvine: interfaz oscura, compacta y con acento verde.
+	style.WindowRounding = 3.0f;
+	style.ChildRounding = 3.0f;
+	style.FrameRounding = 3.0f;
+	style.PopupRounding = 3.0f;
+	style.TabRounding = 3.0f;
+	style.GrabRounding = 2.0f;
+	style.ScrollbarRounding = 3.0f;
 
-	const ImVec4 bg0 = ImVec4(0.090f, 0.075f, 0.130f, opacity);
-	const ImVec4 bg1 = ImVec4(0.140f, 0.120f, 0.195f, opacity);
-	const ImVec4 bg2 = ImVec4(0.200f, 0.165f, 0.290f, opacity);
-	const ImVec4 bg3 = ImVec4(0.270f, 0.220f, 0.380f, opacity);
-	const ImVec4 txt = ImVec4(0.92f, 0.90f, 0.97f, 1.0f);
-	const ImVec4 txtD = ImVec4(0.56f, 0.52f, 0.64f, 1.0f);
+	style.WindowBorderSize = 1.0f;
+	style.ChildBorderSize = 1.0f;
+	style.FrameBorderSize = 0.0f;
+	style.TabBorderSize = 0.0f;
 
-	colors[ImGuiCol_Text] = txt;                 colors[ImGuiCol_TextDisabled] = txtD;
-	colors[ImGuiCol_WindowBg] = bg0;             colors[ImGuiCol_ChildBg] = ImVec4(0, 0, 0, 0.12f);
-	colors[ImGuiCol_PopupBg] = ImVec4(0.11f, 0.09f, 0.16f, 0.98f);
-	colors[ImGuiCol_Border] = ImVec4(0.34f, 0.27f, 0.48f, 0.50f);
-	colors[ImGuiCol_FrameBg] = bg1;              colors[ImGuiCol_FrameBgHovered] = bg2;  colors[ImGuiCol_FrameBgActive] = bg3;
-	colors[ImGuiCol_TitleBg] = ImVec4(0.075f, 0.062f, 0.110f, 1.0f);
-	colors[ImGuiCol_TitleBgActive] = ImVec4(0.14f, 0.11f, 0.21f, 1.0f);
-	colors[ImGuiCol_MenuBarBg] = ImVec4(0.085f, 0.070f, 0.120f, 1.0f);
-	colors[ImGuiCol_ScrollbarBg] = ImVec4(0, 0, 0, 0.22f);
-	colors[ImGuiCol_ScrollbarGrab] = bg2; colors[ImGuiCol_ScrollbarGrabHovered] = bg3; colors[ImGuiCol_ScrollbarGrabActive] = accent;
+	style.WindowPadding = ImVec2(9.0f, 9.0f);
+	style.FramePadding = ImVec2(8.0f, 5.0f);
+	style.ItemSpacing = ImVec2(7.0f, 6.0f);
+	style.ItemInnerSpacing = ImVec2(6.0f, 4.0f);
+	style.IndentSpacing = 16.0f;
+	style.ScrollbarSize = 12.0f;
+	style.GrabMinSize = 9.0f;
+	style.WindowTitleAlign = ImVec2(0.02f, 0.5f);
+	style.WindowMenuButtonPosition = ImGuiDir_None;
+
+	const ImVec4 base0 = ImVec4(0.047f, 0.059f, 0.067f, opacity);
+	const ImVec4 base1 = ImVec4(0.075f, 0.094f, 0.105f, opacity);
+	const ImVec4 base2 = ImVec4(0.105f, 0.130f, 0.142f, opacity);
+	const ImVec4 base3 = ImVec4(0.145f, 0.176f, 0.188f, opacity);
+	const ImVec4 text = ImVec4(0.90f, 0.94f, 0.93f, 1.0f);
+	const ImVec4 textMuted = ImVec4(0.48f, 0.57f, 0.57f, 1.0f);
+	const ImVec4 border = ImVec4(0.18f, 0.25f, 0.25f, 0.85f);
+
+	colors[ImGuiCol_Text] = text;
+	colors[ImGuiCol_TextDisabled] = textMuted;
+	colors[ImGuiCol_WindowBg] = base0;
+	colors[ImGuiCol_ChildBg] = ImVec4(0.035f, 0.045f, 0.050f, 0.70f);
+	colors[ImGuiCol_PopupBg] = ImVec4(0.055f, 0.070f, 0.076f, 0.98f);
+	colors[ImGuiCol_Border] = border;
+	colors[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
+
+	colors[ImGuiCol_FrameBg] = base1;
+	colors[ImGuiCol_FrameBgHovered] = base2;
+	colors[ImGuiCol_FrameBgActive] = base3;
+
+	colors[ImGuiCol_TitleBg] = ImVec4(0.035f, 0.045f, 0.050f, 1.0f);
+	colors[ImGuiCol_TitleBgActive] = ImVec4(0.060f, 0.080f, 0.085f, 1.0f);
+	colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.035f, 0.045f, 0.050f, 1.0f);
+	colors[ImGuiCol_MenuBarBg] = ImVec4(0.035f, 0.045f, 0.050f, 1.0f);
+
+	colors[ImGuiCol_ScrollbarBg] = ImVec4(0.02f, 0.025f, 0.03f, 0.65f);
+	colors[ImGuiCol_ScrollbarGrab] = base2;
+	colors[ImGuiCol_ScrollbarGrabHovered] = base3;
+	colors[ImGuiCol_ScrollbarGrabActive] = accent;
+
 	colors[ImGuiCol_CheckMark] = kAccentHi;
-	colors[ImGuiCol_SliderGrab] = ImVec4(0.48f, 0.34f, 0.82f, 1.0f); colors[ImGuiCol_SliderGrabActive] = kAccentHi;
-	colors[ImGuiCol_Button] = bg1; colors[ImGuiCol_ButtonHovered] = bg2; colors[ImGuiCol_ButtonActive] = accent;
-	colors[ImGuiCol_Header] = ImVec4(accent.x, accent.y, accent.z, 0.28f);
-	colors[ImGuiCol_HeaderHovered] = ImVec4(accent.x, accent.y, accent.z, 0.48f);
-	colors[ImGuiCol_HeaderActive] = ImVec4(accent.x, accent.y, accent.z, 0.68f);
-	colors[ImGuiCol_Separator] = ImVec4(0.30f, 0.24f, 0.42f, 0.55f);
-	colors[ImGuiCol_SeparatorHovered] = accent; colors[ImGuiCol_SeparatorActive] = kAccentHi;
-	colors[ImGuiCol_ResizeGrip] = ImVec4(accent.x, accent.y, accent.z, 0.25f);
-	colors[ImGuiCol_ResizeGripHovered] = ImVec4(accent.x, accent.y, accent.z, 0.55f);
+	colors[ImGuiCol_SliderGrab] = accent;
+	colors[ImGuiCol_SliderGrabActive] = kAccentHi;
+
+	colors[ImGuiCol_Button] = base1;
+	colors[ImGuiCol_ButtonHovered] = base2;
+	colors[ImGuiCol_ButtonActive] = ImVec4(accent.x, accent.y, accent.z, 0.90f);
+
+	colors[ImGuiCol_Header] = ImVec4(accent.x, accent.y, accent.z, 0.20f);
+	colors[ImGuiCol_HeaderHovered] = ImVec4(accent.x, accent.y, accent.z, 0.38f);
+	colors[ImGuiCol_HeaderActive] = ImVec4(accent.x, accent.y, accent.z, 0.55f);
+
+	colors[ImGuiCol_Separator] = border;
+	colors[ImGuiCol_SeparatorHovered] = accent;
+	colors[ImGuiCol_SeparatorActive] = kAccentHi;
+
+	colors[ImGuiCol_ResizeGrip] = ImVec4(accent.x, accent.y, accent.z, 0.18f);
+	colors[ImGuiCol_ResizeGripHovered] = ImVec4(accent.x, accent.y, accent.z, 0.45f);
 	colors[ImGuiCol_ResizeGripActive] = kAccentHi;
-	colors[ImGuiCol_Tab] = bg1; colors[ImGuiCol_TabHovered] = ImVec4(accent.x, accent.y, accent.z, 0.65f);
-	colors[ImGuiCol_TabActive] = ImVec4(0.32f, 0.24f, 0.46f, 1.0f);
-	colors[ImGuiCol_TabUnfocused] = ImVec4(0.10f, 0.085f, 0.15f, 1.0f);
-	colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.16f, 0.13f, 0.23f, 1.0f);
-	colors[ImGuiCol_DockingPreview] = ImVec4(accent.x, accent.y, accent.z, 0.55f);
-	colors[ImGuiCol_DockingEmptyBg] = bg0;
-	colors[ImGuiCol_PlotLines] = kAccentHi; colors[ImGuiCol_PlotHistogram] = accent;
-	colors[ImGuiCol_TextSelectedBg] = ImVec4(accent.x, accent.y, accent.z, 0.35f);
+
+	colors[ImGuiCol_Tab] = ImVec4(0.060f, 0.078f, 0.084f, 1.0f);
+	colors[ImGuiCol_TabHovered] = ImVec4(accent.x, accent.y, accent.z, 0.42f);
+	colors[ImGuiCol_TabActive] = ImVec4(0.085f, 0.145f, 0.130f, 1.0f);
+	colors[ImGuiCol_TabUnfocused] = ImVec4(0.045f, 0.058f, 0.063f, 1.0f);
+	colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.065f, 0.095f, 0.090f, 1.0f);
+
+	colors[ImGuiCol_DockingPreview] = ImVec4(accent.x, accent.y, accent.z, 0.50f);
+	colors[ImGuiCol_DockingEmptyBg] = base0;
+	colors[ImGuiCol_PlotLines] = kAccentHi;
+	colors[ImGuiCol_PlotHistogram] = accent;
+	colors[ImGuiCol_TextSelectedBg] = ImVec4(accent.x, accent.y, accent.z, 0.30f);
 	colors[ImGuiCol_NavHighlight] = kAccentHi;
 
 	ImGuiIO& io = ImGui::GetIO();
@@ -180,25 +222,42 @@ void GUI::toolTipData() {}
 void GUI::ToolBar() {}
 
 void GUI::closeApp() {
-	if (show_exit_popup) { ImGui::OpenPopup("Exit?"); show_exit_popup = false; }
+	if (show_exit_popup) {
+		ImGui::OpenPopup("Cerrar Wildvine Studio");
+		show_exit_popup = false;
+	}
+
 	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
 	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-	if (ImGui::BeginPopupModal("Exit?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-		ImGui::Text("Estas a punto de salir de MinerEngine.");
-		ImGui::Text("Estas seguro?");
-		ImGui::Spacing(); ImGui::Separator();
-		if (ImGui::Button("OK", ImVec2(120, 0))) { exit(0); ImGui::CloseCurrentPopup(); }
-		ImGui::SetItemDefaultFocus(); ImGui::SameLine();
-		if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+
+	if (ImGui::BeginPopupModal("Cerrar Wildvine Studio", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::TextUnformatted("Se cerrara el editor y se perderan los cambios no guardados.");
+		ImGui::TextUnformatted("Deseas continuar?");
+		ImGui::Spacing();
+		ImGui::Separator();
+		ImGui::Spacing();
+
+		ImGui::PushStyleColor(ImGuiCol_Button, kAccent);
+		if (ImGui::Button("Cerrar", ImVec2(120, 0))) {
+			exit(0);
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::PopStyleColor();
+
+		ImGui::SetItemDefaultFocus();
+		ImGui::SameLine();
+		if (ImGui::Button("Cancelar", ImVec2(120, 0))) {
+			ImGui::CloseCurrentPopup();
+		}
 		ImGui::EndPopup();
 	}
 }
 
 void GUI::inspectorGeneral(EU::TSharedPointer<Actor> actor) {
-	ImGui::Begin("Inspector");
-	if (!actor) { ImGui::TextDisabled("No actor selected"); ImGui::End(); return; }
+	ImGui::Begin("Propiedades");
+	if (!actor) { ImGui::TextDisabled("Ningun objeto seleccionado"); ImGui::End(); return; }
 
-	ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.10f, 0.17f, 1.0f));
+	ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.055f, 0.075f, 0.078f, 1.0f));
 	ImGui::BeginChild("HeaderRegion", ImVec2(0, 95), true);
 	bool isStatic = false;
 	ImGui::Checkbox("##Static", &isStatic); ImGui::SameLine();
@@ -249,9 +308,9 @@ void GUI::inspectorContainer(EU::TSharedPointer<Actor> actor) {
 }
 
 void GUI::outliner(const std::vector<EU::TSharedPointer<Actor>>& actors) {
-	ImGui::Begin("Hierarchy");
+	ImGui::Begin("Escena");
 
-	if (ImGui::Button("Show All")) {
+	if (ImGui::Button("Mostrar todo")) {
 		for (const auto& a : actors) {
 			if (a.isNull()) continue;
 			auto mr = a->getComponent<MeshRendererComponent>();
@@ -260,7 +319,7 @@ void GUI::outliner(const std::vector<EU::TSharedPointer<Actor>>& actors) {
 	}
 	ImGui::SameLine();
 	static ImGuiTextFilter filter;
-	filter.Draw("Search", ImGui::GetContentRegionAvail().x - 8.0f);
+	filter.Draw("Buscar", ImGui::GetContentRegionAvail().x - 8.0f);
 	ImGui::Separator();
 
 	for (int i = 0; i < (int)actors.size(); ++i) {
@@ -296,22 +355,22 @@ void GUI::outliner(const std::vector<EU::TSharedPointer<Actor>>& actors) {
 		// ===== PUNTO (b): menu de clic derecho =====
 		if (ImGui::BeginPopupContextItem()) {
 			selectedActorIndex = i;
-			ImGui::TextDisabled("Actor Options");
+			ImGui::TextDisabled("Acciones del objeto");
 			ImGui::Separator();
 
-			if (ImGui::MenuItem("Duplicate", "Ctrl+D")) m_duplicateRequested = true;
-			if (ImGui::MenuItem("Copy", "Ctrl+C")) m_copyRequested = true;
-			if (ImGui::MenuItem("Paste", "Ctrl+V")) m_pasteRequested = true;
+			if (ImGui::MenuItem("Duplicar", "Ctrl+D")) m_duplicateRequested = true;
+			if (ImGui::MenuItem("Copiar", "Ctrl+C")) m_copyRequested = true;
+			if (ImGui::MenuItem("Pegar", "Ctrl+V")) m_pasteRequested = true;
 
 			ImGui::Separator();
-			if (ImGui::MenuItem("Isolate (solo)")) {
+			if (ImGui::MenuItem("Aislar objeto")) {
 				for (const auto& a2 : actors) {
 					if (a2.isNull()) continue;
 					auto mr2 = a2->getComponent<MeshRendererComponent>();
 					if (mr2) mr2->setVisible(a2.get() == actor.get());
 				}
 			}
-			if (ImGui::MenuItem("Show All")) {
+			if (ImGui::MenuItem("Mostrar todo")) {
 				for (const auto& a2 : actors) {
 					if (a2.isNull()) continue;
 					auto mr2 = a2->getComponent<MeshRendererComponent>();
@@ -320,12 +379,12 @@ void GUI::outliner(const std::vector<EU::TSharedPointer<Actor>>& actors) {
 			}
 			if (mr) {
 				bool vis = mr->isVisible();
-				if (ImGui::MenuItem(vis ? "Hide" : "Show")) mr->setVisible(!vis);
+				if (ImGui::MenuItem(vis ? "Ocultar" : "Mostrar")) mr->setVisible(!vis);
 			}
 
 			ImGui::Separator();
 			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
-			if (ImGui::MenuItem("Delete", "Del")) m_deleteRequested = true;
+			if (ImGui::MenuItem("Eliminar", "Supr")) m_deleteRequested = true;
 			ImGui::PopStyleColor();
 
 			ImGui::EndPopup();
@@ -395,123 +454,273 @@ void GUI::editTransform(Camera& cam, Window& window, EU::TSharedPointer<Actor> a
 }
 
 void GUI::drawGizmoToolbar() {
-	ImGui::SetNextWindowBgAlpha(0.85f);
-	ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-	if (ImGui::Begin("GizmoToolBar", nullptr, window_flags)) {
-		auto buttonMode = [&](const char* label, ImGuizmo::OPERATION op, const char* shortcut) {
-			bool isActive = (mCurrentGizmoOperation == op);
-			if (isActive) ImGui::PushStyleColor(ImGuiCol_Button, kAccent);
-			if (ImGui::Button(label)) mCurrentGizmoOperation = op;
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s (%s)", label, shortcut);
-			if (isActive) ImGui::PopStyleColor();
-			ImGui::SameLine();
-			};
-		buttonMode("T", ImGuizmo::TRANSLATE, "W");
-		buttonMode("R", ImGuizmo::ROTATE, "E");
-		buttonMode("S", ImGuizmo::SCALE, "R");
+	ImGui::SetNextWindowBgAlpha(0.94f);
+	ImGuiWindowFlags window_flags =
+		ImGuiWindowFlags_NoDecoration |
+		ImGuiWindowFlags_AlwaysAutoResize |
+		ImGuiWindowFlags_NoFocusOnAppearing |
+		ImGuiWindowFlags_NoNav;
 
-		static ImGuizmo::MODE mCurrentGizmoMode = ImGuizmo::WORLD;
-		if (ImGui::Button(mCurrentGizmoMode == ImGuizmo::WORLD ? "Global" : "Local"))
-			mCurrentGizmoMode = (mCurrentGizmoMode == ImGuizmo::WORLD) ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
-		ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
-		ImGui::Checkbox("Grid", &m_showGrid); ImGui::SameLine();
-		ImGui::Checkbox("Snap", &m_snapEnabled); ImGui::SameLine();
-		if (ImGui::Button("Focus")) m_focusRequested = true;
-		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Centrar camara en el objeto (tecla F)");
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 5.0f));
+
+	if (ImGui::Begin("##WildvineViewportTools", nullptr, window_flags)) {
+		auto modeButton = [&](const char* label, ImGuizmo::OPERATION operation, const char* shortcut) {
+			const bool active = (mCurrentGizmoOperation == operation);
+			if (active) {
+				ImGui::PushStyleColor(ImGuiCol_Button, kAccent);
+				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kAccentHi);
+			}
+
+			if (ImGui::Button(label)) {
+				mCurrentGizmoOperation = operation;
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("%s  [%s]", label, shortcut);
+			}
+
+			if (active) {
+				ImGui::PopStyleColor(2);
+			}
+		};
+
+		modeButton("Mover", ImGuizmo::TRANSLATE, "W");
 		ImGui::SameLine();
-		if (ImGui::Button("Fit")) m_fitRequested = true;
-		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Encuadrar toda la escena");
+		modeButton("Rotar", ImGuizmo::ROTATE, "E");
+		ImGui::SameLine();
+		modeButton("Escalar", ImGuizmo::SCALE, "R");
+
+		static ImGuizmo::MODE currentMode = ImGuizmo::WORLD;
+		ImGui::SameLine();
+		ImGui::TextDisabled("|");
+		ImGui::SameLine();
+
+		if (ImGui::Button(currentMode == ImGuizmo::WORLD ? "Mundo" : "Local")) {
+			currentMode = (currentMode == ImGuizmo::WORLD) ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
+		}
+
+		ImGui::SameLine();
+		ImGui::Checkbox("Rejilla", &m_showGrid);
+		ImGui::SameLine();
+		ImGui::Checkbox("Ajuste", &m_snapEnabled);
+
+		ImGui::SameLine();
+		if (ImGui::Button("Enfocar")) {
+			m_focusRequested = true;
+		}
+		if (ImGui::IsItemHovered()) {
+			ImGui::SetTooltip("Centra la camara en el objeto seleccionado [F]");
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Encuadrar")) {
+			m_fitRequested = true;
+		}
 	}
+
 	ImGui::End();
-	ImGui::PopStyleVar();
+	ImGui::PopStyleVar(2);
 }
 
 void GUI::drawStudioTopRibbon() {
 	ImGuiViewport* viewport = ImGui::GetMainViewport();
-	const float menuBarHeight = 24.0f;
-	const float ribbonHeight = 72.0f;
+	const float menuBarHeight = 28.0f;
+	const float ribbonHeight = 62.0f;
 
+	// Barra superior: marca y menus.
 	ImGui::SetNextWindowPos(viewport->Pos, ImGuiCond_Always);
 	ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, menuBarHeight), ImGuiCond_Always);
-	ImGuiWindowFlags menuFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_MenuBar;
+
+	ImGuiWindowFlags menuFlags =
+		ImGuiWindowFlags_NoDecoration |
+		ImGuiWindowFlags_NoMove |
+		ImGuiWindowFlags_NoSavedSettings |
+		ImGuiWindowFlags_NoScrollWithMouse |
+		ImGuiWindowFlags_NoScrollbar |
+		ImGuiWindowFlags_MenuBar;
+
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 4.0f));
-	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.085f, 0.070f, 0.120f, 1.0f));
-	if (ImGui::Begin("##StudioMenuBar", nullptr, menuFlags)) {
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.025f, 0.035f, 0.038f, 1.0f));
+
+	if (ImGui::Begin("##WildvineMenuBar", nullptr, menuFlags)) {
 		if (ImGui::BeginMenuBar()) {
-			if (ImGui::BeginMenu("File")) {
-				ImGui::MenuItem("New Scene"); ImGui::MenuItem("Open Scene..."); ImGui::MenuItem("Save");
+			ImGui::PushStyleColor(ImGuiCol_Text, kAccentHi);
+			ImGui::TextUnformatted("WILDVINE");
+			ImGui::PopStyleColor();
+
+			ImGui::SameLine();
+			ImGui::TextDisabled("// SCENE STUDIO");
+			ImGui::Separator();
+
+			if (ImGui::BeginMenu("Archivo")) {
+				ImGui::MenuItem("Nueva escena");
+				ImGui::MenuItem("Abrir escena...");
+				ImGui::MenuItem("Guardar", "Ctrl+S");
 				ImGui::Separator();
-				if (ImGui::MenuItem("Exit MinerEngine")) show_exit_popup = true;
+				if (ImGui::MenuItem("Cerrar Wildvine Studio")) {
+					show_exit_popup = true;
+				}
 				ImGui::EndMenu();
 			}
-			if (ImGui::BeginMenu("Edit")) {
-				if (ImGui::MenuItem("Undo", "Ctrl+Z")) m_undoRequested = true;
-				if (ImGui::MenuItem("Redo", "Ctrl+Y")) m_redoRequested = true;
+
+			if (ImGui::BeginMenu("Edicion")) {
+				if (ImGui::MenuItem("Deshacer", "Ctrl+Z")) m_undoRequested = true;
+				if (ImGui::MenuItem("Rehacer", "Ctrl+Y")) m_redoRequested = true;
 				ImGui::Separator();
-				if (ImGui::MenuItem("Copy", "Ctrl+C")) m_copyRequested = true;
-				if (ImGui::MenuItem("Paste", "Ctrl+V")) m_pasteRequested = true;
-				if (ImGui::MenuItem("Duplicate", "Ctrl+D")) m_duplicateRequested = true;
-				if (ImGui::MenuItem("Delete", "Del")) m_deleteRequested = true;
+				if (ImGui::MenuItem("Copiar", "Ctrl+C")) m_copyRequested = true;
+				if (ImGui::MenuItem("Pegar", "Ctrl+V")) m_pasteRequested = true;
+				if (ImGui::MenuItem("Duplicar", "Ctrl+D")) m_duplicateRequested = true;
+				if (ImGui::MenuItem("Eliminar", "Supr")) m_deleteRequested = true;
 				ImGui::Separator();
-				if (ImGui::MenuItem("Save Prefab")) m_savePrefabRequested = true;
-				if (ImGui::MenuItem("Load Prefab")) m_loadPrefabRequested = true;
+				if (ImGui::MenuItem("Guardar prefab")) m_savePrefabRequested = true;
+				if (ImGui::MenuItem("Cargar prefab")) m_loadPrefabRequested = true;
+				ImGui::EndMenu();
+			}
+
+			if (ImGui::BeginMenu("Vista")) {
+				ImGui::MenuItem("Mostrar rejilla", nullptr, &m_showGrid);
+				ImGui::MenuItem("Ajuste a rejilla", nullptr, &m_snapEnabled);
+				if (ImGui::MenuItem("Enfocar seleccionado", "F")) m_focusRequested = true;
+				if (ImGui::MenuItem("Encuadrar escena")) m_fitRequested = true;
+				ImGui::EndMenu();
+			}
+
+			if (ImGui::BeginMenu("Ayuda")) {
+				ImGui::TextDisabled("Wildvine Studio");
+				ImGui::TextDisabled("Editor DirectX 11");
 				ImGui::EndMenu();
 			}
 
 			ImGui::EndMenuBar();
 		}
 	}
-	ImGui::End();
-	ImGui::PopStyleColor(); ImGui::PopStyleVar(2);
 
-	ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x, viewport->Pos.y + menuBarHeight), ImGuiCond_Always);
-	ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, ribbonHeight), ImGuiCond_Always);
-	ImGuiWindowFlags ribbonFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoScrollbar;
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 10.0f));
-	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 6.0f));
-	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.125f, 0.105f, 0.180f, 1.0f));
-	if (ImGui::Begin("##StudioRibbon", nullptr, ribbonFlags)) {
-		auto ribbonButton = [&](const char* id, const char* topText, const char* bottomText, ImVec2 size, bool active = false) -> bool {
-			if (active) ImGui::PushStyleColor(ImGuiCol_Button, kAccent);
-			bool pressed = ImGui::Button(id, size);
-			ImVec2 mn = ImGui::GetItemRectMin(); ImVec2 mx = ImGui::GetItemRectMax();
-			ImDrawList* dl = ImGui::GetWindowDrawList();
-			ImVec2 ts = ImGui::CalcTextSize(topText); ImVec2 bs = ImGui::CalcTextSize(bottomText);
-			float cx = (mn.x + mx.x) * 0.5f;
-			dl->AddText(ImVec2(cx - ts.x * 0.5f, mn.y + 10.0f), ImGui::GetColorU32(ImGuiCol_Text), topText);
-			dl->AddText(ImVec2(cx - bs.x * 0.5f, mn.y + 34.0f), ImGui::GetColorU32(ImGuiCol_TextDisabled), bottomText);
-			if (active) ImGui::PopStyleColor();
-			return pressed;
-			};
-		auto separatorGroup = [&]() {
-			ImGui::SameLine(); ImGui::Dummy(ImVec2(6.0f, 1.0f)); ImGui::SameLine();
-			ImVec2 p = ImGui::GetCursorScreenPos();
-			ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y), ImVec2(p.x, p.y + 48.0f), IM_COL32(140, 90, 230, 110), 1.0f);
-			ImGui::Dummy(ImVec2(8.0f, 48.0f)); ImGui::SameLine();
-			};
-		const ImVec2 btnSize(72.0f, 52.0f);
-		ribbonButton("##Select", "Select", "Cursor", btnSize, false); ImGui::SameLine();
-		if (ribbonButton("##Move", "Move", "W", btnSize, mCurrentGizmoOperation == ImGuizmo::TRANSLATE)) mCurrentGizmoOperation = ImGuizmo::TRANSLATE; ImGui::SameLine();
-		if (ribbonButton("##Rotate", "Rotate", "E", btnSize, mCurrentGizmoOperation == ImGuizmo::ROTATE)) mCurrentGizmoOperation = ImGuizmo::ROTATE; ImGui::SameLine();
-		if (ribbonButton("##Scale", "Scale", "R", btnSize, mCurrentGizmoOperation == ImGuizmo::SCALE)) mCurrentGizmoOperation = ImGuizmo::SCALE;
-		separatorGroup();
-		ribbonButton("##Part", "3D Object", "Mesh", btnSize, false); ImGui::SameLine();
-		ribbonButton("##Light", "Light", "Point", btnSize, false); ImGui::SameLine();
-		ribbonButton("##Material", "Material", "Editor", btnSize, false);
-		separatorGroup();
-		ribbonButton("##Play", "Play", "Game", btnSize, false);
-	}
 	ImGui::End();
-	ImGui::PopStyleColor(1); ImGui::PopStyleVar(3);
+	ImGui::PopStyleColor();
+	ImGui::PopStyleVar(2);
+
+	// Barra de acciones compacta.
+	ImGui::SetNextWindowPos(
+		ImVec2(viewport->Pos.x, viewport->Pos.y + menuBarHeight),
+		ImGuiCond_Always);
+	ImGui::SetNextWindowSize(
+		ImVec2(viewport->Size.x, ribbonHeight),
+		ImGuiCond_Always);
+
+	ImGuiWindowFlags ribbonFlags =
+		ImGuiWindowFlags_NoDecoration |
+		ImGuiWindowFlags_NoMove |
+		ImGuiWindowFlags_NoSavedSettings |
+		ImGuiWindowFlags_NoScrollWithMouse |
+		ImGuiWindowFlags_NoScrollbar;
+
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, 9.0f));
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 4.0f));
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.050f, 0.066f, 0.071f, 1.0f));
+
+	if (ImGui::Begin("##WildvineCommandBar", nullptr, ribbonFlags)) {
+		auto actionButton = [&](const char* id, const char* label, const char* key, bool active = false) -> bool {
+			if (active) {
+				ImGui::PushStyleColor(ImGuiCol_Button, kAccent);
+			}
+
+			bool pressed = ImGui::Button(id, ImVec2(76.0f, 42.0f));
+			ImVec2 min = ImGui::GetItemRectMin();
+			ImVec2 max = ImGui::GetItemRectMax();
+			ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+			ImVec2 labelSize = ImGui::CalcTextSize(label);
+			ImVec2 keySize = ImGui::CalcTextSize(key);
+			float centerX = (min.x + max.x) * 0.5f;
+
+			drawList->AddText(
+				ImVec2(centerX - labelSize.x * 0.5f, min.y + 7.0f),
+				ImGui::GetColorU32(ImGuiCol_Text),
+				label);
+
+			drawList->AddText(
+				ImVec2(centerX - keySize.x * 0.5f, min.y + 24.0f),
+				ImGui::GetColorU32(ImGuiCol_TextDisabled),
+				key);
+
+			if (active) {
+				ImGui::PopStyleColor();
+			}
+			return pressed;
+		};
+
+		auto groupDivider = [&]() {
+			ImGui::SameLine();
+			ImGui::Dummy(ImVec2(5.0f, 1.0f));
+			ImGui::SameLine();
+
+			ImVec2 p = ImGui::GetCursorScreenPos();
+			ImGui::GetWindowDrawList()->AddLine(
+				ImVec2(p.x, p.y + 3.0f),
+				ImVec2(p.x, p.y + 39.0f),
+				IM_COL32(54, 86, 82, 220),
+				1.0f);
+
+			ImGui::Dummy(ImVec2(7.0f, 42.0f));
+			ImGui::SameLine();
+		};
+
+		actionButton("##WV_Select", "Seleccion", "Q", false);
+		ImGui::SameLine();
+
+		if (actionButton(
+			"##WV_Move", "Mover", "W",
+			mCurrentGizmoOperation == ImGuizmo::TRANSLATE)) {
+			mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
+		}
+		ImGui::SameLine();
+
+		if (actionButton(
+			"##WV_Rotate", "Rotar", "E",
+			mCurrentGizmoOperation == ImGuizmo::ROTATE)) {
+			mCurrentGizmoOperation = ImGuizmo::ROTATE;
+		}
+		ImGui::SameLine();
+
+		if (actionButton(
+			"##WV_Scale", "Escalar", "R",
+			mCurrentGizmoOperation == ImGuizmo::SCALE)) {
+			mCurrentGizmoOperation = ImGuizmo::SCALE;
+		}
+
+		groupDivider();
+
+		actionButton("##WV_Model", "Modelo", "Crear", false);
+		ImGui::SameLine();
+		actionButton("##WV_Light", "Luz", "Crear", false);
+		ImGui::SameLine();
+		actionButton("##WV_Material", "Material", "Editar", false);
+
+		groupDivider();
+
+		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12f, 0.48f, 0.34f, 1.0f));
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.16f, 0.62f, 0.43f, 1.0f));
+		actionButton("##WV_Play", "Ejecutar", "Play", false);
+		ImGui::PopStyleColor(2);
+
+		ImGui::SameLine();
+		ImGui::Dummy(ImVec2(16.0f, 1.0f));
+		ImGui::SameLine();
+		ImGui::AlignTextToFramePadding();
+		ImGui::TextDisabled("ESCENA ACTIVA");
+	}
+
+	ImGui::End();
+	ImGui::PopStyleColor();
+	ImGui::PopStyleVar(3);
 }
 
 void GUI::drawViewportPanel(ID3D11ShaderResourceView* viewportSRV) {
 	ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse;
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-	if (ImGui::Begin("Viewport", nullptr, flags)) {
+	if (ImGui::Begin("Vista 3D", nullptr, flags)) {
 		m_viewportDrawList = ImGui::GetWindowDrawList();
 		ImVec2 panelMin = ImGui::GetCursorScreenPos();
 		ImVec2 panelSize = ImGui::GetContentRegionAvail();
@@ -521,8 +730,8 @@ void GUI::drawViewportPanel(ID3D11ShaderResourceView* viewportSRV) {
 		if (viewportSRV) ImGui::Image((ImTextureID)viewportSRV, panelSize);
 		else {
 			ImVec2 panelMax(panelMin.x + panelSize.x, panelMin.y + panelSize.y);
-			m_viewportDrawList->AddRectFilled(panelMin, panelMax, IM_COL32(24, 20, 34, 255));
-			m_viewportDrawList->AddText(ImVec2(panelMin.x + 12.0f, panelMin.y + 12.0f), IM_COL32(220, 215, 240, 255), "Viewport no renderizado");
+			m_viewportDrawList->AddRectFilled(panelMin, panelMax, IM_COL32(12, 17, 19, 255));
+			m_viewportDrawList->AddText(ImVec2(panelMin.x + 12.0f, panelMin.y + 12.0f), IM_COL32(205, 230, 220, 255), "Vista 3D sin render");
 		}
 		m_viewportHovered = ImGui::IsItemHovered();
 		m_viewportActive = ImGui::IsItemActive();
@@ -546,40 +755,86 @@ void GUI::drawViewportGrid(Camera& cam) {
 
 void GUI::drawEditorDockspace() {
 	ImGuiViewport* mainViewport = ImGui::GetMainViewport();
-	const float topOffset = 96.0f;
-	ImVec2 dockPos = ImVec2(mainViewport->Pos.x, mainViewport->Pos.y + topOffset);
-	ImVec2 dockSize = ImVec2(mainViewport->Size.x, mainViewport->Size.y - topOffset);
-	ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings;
+	const float topOffset = 90.0f;
+
+	ImVec2 dockPos(
+		mainViewport->Pos.x,
+		mainViewport->Pos.y + topOffset);
+
+	ImVec2 dockSize(
+		mainViewport->Size.x,
+		mainViewport->Size.y - topOffset);
+
+	ImGuiWindowFlags windowFlags =
+		ImGuiWindowFlags_NoTitleBar |
+		ImGuiWindowFlags_NoCollapse |
+		ImGuiWindowFlags_NoResize |
+		ImGuiWindowFlags_NoMove |
+		ImGuiWindowFlags_NoBringToFrontOnFocus |
+		ImGuiWindowFlags_NoNavFocus |
+		ImGuiWindowFlags_NoBackground |
+		ImGuiWindowFlags_NoDecoration |
+		ImGuiWindowFlags_NoSavedSettings;
+
 	ImGui::SetNextWindowPos(dockPos, ImGuiCond_Always);
 	ImGui::SetNextWindowSize(dockSize, ImGuiCond_Always);
 	ImGui::SetNextWindowViewport(mainViewport->ID);
+
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-	ImGui::Begin("##MainEditorDockspace", nullptr, window_flags);
-	ImGuiID dockspace_id = ImGui::GetID("##EditorDockspace");
-	ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
+
+	ImGui::Begin("##WildvineDockspaceHost", nullptr, windowFlags);
+
+	ImGuiID dockspaceId = ImGui::GetID("##WildvineEditorDockspace");
+	ImGui::DockSpace(
+		dockspaceId,
+		ImVec2(0.0f, 0.0f),
+		ImGuiDockNodeFlags_PassthruCentralNode);
+
 	if (!m_dockLayoutInitialized) {
 		m_dockLayoutInitialized = true;
-		ImGui::DockBuilderRemoveNode(dockspace_id);
-		ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
-		ImGui::DockBuilderSetNodeSize(dockspace_id, dockSize);
-		ImGuiID dockMain = dockspace_id;
-		ImGuiID dockLeft = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Left, 0.19f, nullptr, &dockMain);
-		ImGuiID dockRight = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Right, 0.26f, nullptr, &dockMain);
-		ImGuiID dockBottom = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Down, 0.28f, nullptr, &dockMain);
-		ImGuiID dockLeftBottom = ImGui::DockBuilderSplitNode(dockLeft, ImGuiDir_Down, 0.45f, nullptr, &dockLeft);
-		ImGui::DockBuilderDockWindow("Hierarchy", dockLeft);
-		ImGui::DockBuilderDockWindow("Lighting", dockLeftBottom);
-		ImGui::DockBuilderDockWindow("Inspector", dockRight);
-		ImGui::DockBuilderDockWindow("G-Buffer", dockRight);
-		ImGui::DockBuilderDockWindow("Console", dockBottom);
+
+		ImGui::DockBuilderRemoveNode(dockspaceId);
+		ImGui::DockBuilderAddNode(
+			dockspaceId,
+			ImGuiDockNodeFlags_DockSpace);
+		ImGui::DockBuilderSetNodeSize(dockspaceId, dockSize);
+
+		ImGuiID dockCenter = dockspaceId;
+
+		ImGuiID dockLeft = ImGui::DockBuilderSplitNode(
+			dockCenter, ImGuiDir_Left, 0.17f, nullptr, &dockCenter);
+
+		ImGuiID dockRight = ImGui::DockBuilderSplitNode(
+			dockCenter, ImGuiDir_Right, 0.24f, nullptr, &dockCenter);
+
+		ImGuiID dockBottom = ImGui::DockBuilderSplitNode(
+			dockCenter, ImGuiDir_Down, 0.25f, nullptr, &dockCenter);
+
+		ImGuiID dockRightBottom = ImGui::DockBuilderSplitNode(
+			dockRight, ImGuiDir_Down, 0.40f, nullptr, &dockRight);
+
+		ImGuiID dockBottomLeft = ImGui::DockBuilderSplitNode(
+			dockBottom, ImGuiDir_Left, 0.42f, nullptr, &dockBottom);
+
+		ImGui::DockBuilderDockWindow("Escena", dockLeft);
+		ImGui::DockBuilderDockWindow("Propiedades", dockRight);
+
+		ImGui::DockBuilderDockWindow("Iluminacion", dockRightBottom);
+		ImGui::DockBuilderDockWindow("Datos de Render", dockRightBottom);
+
+		ImGui::DockBuilderDockWindow("Recursos", dockBottomLeft);
+
+		ImGui::DockBuilderDockWindow("Consola", dockBottom);
 		ImGui::DockBuilderDockWindow("Render", dockBottom);
-		ImGui::DockBuilderDockWindow("Performance", dockBottom);
-		ImGui::DockBuilderDockWindow("Viewport", dockMain);
-		ImGui::DockBuilderDockWindow("Content", dockBottom);
-        ImGui::DockBuilderFinish(dockspace_id);
+		ImGui::DockBuilderDockWindow("Rendimiento", dockBottom);
+
+		ImGui::DockBuilderDockWindow("Vista 3D", dockCenter);
+
+		ImGui::DockBuilderFinish(dockspaceId);
 	}
+
 	ImGui::End();
 	ImGui::PopStyleVar(3);
 }
@@ -588,10 +843,10 @@ void GUI::drawGBufferDebugPanel(ID3D11ShaderResourceView* albedoMetallicSRV,
 	ID3D11ShaderResourceView* normalRoughnessSRV,
 	ID3D11ShaderResourceView* worldAoSRV,
 	ID3D11ShaderResourceView* emissiveAlphaSRV) {
-	ImGui::Begin("G-Buffer");
-	const char* modes[] = { "Final Lit", "Shadow Factor", "Albedo", "World Normal", "World Position", "Metal / Rough / AO", "Emissive" };
-	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.72f, 0.55f, 1.0f, 1.0f));
-	ImGui::TextUnformatted("Modo de visualizacion");
+	ImGui::Begin("Datos de Render");
+	const char* modes[] = { "Iluminacion final", "Factor de sombra", "Albedo", "Normal global", "Posicion global", "Metal / Rugosidad / AO", "Emissive" };
+	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.30f, 0.92f, 0.70f, 1.0f));
+	ImGui::TextUnformatted("Canal de visualizacion");
 	ImGui::PopStyleColor();
 	ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
 	ImGui::Combo("##DeferredDebugMode", &m_deferredDebugViewMode, modes, IM_ARRAYSIZE(modes));
@@ -601,9 +856,9 @@ void GUI::drawGBufferDebugPanel(ID3D11ShaderResourceView* albedoMetallicSRV,
 	auto placeholder = [&](ImVec2 size, const char* msg) {
 		ImVec2 p = ImGui::GetCursorScreenPos();
 		ImDrawList* dl = ImGui::GetWindowDrawList();
-		dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(25, 22, 36, 255), 4.0f);
-		dl->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(140, 90, 230, 120), 4.0f);
-		dl->AddText(ImVec2(p.x + 8.0f, p.y + 8.0f), IM_COL32(205, 200, 225, 255), msg);
+		dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(14, 19, 21, 255), 4.0f);
+		dl->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(36, 185, 137, 125), 4.0f);
+		dl->AddText(ImVec2(p.x + 8.0f, p.y + 8.0f), IM_COL32(194, 226, 216, 255), msg);
 		ImGui::Dummy(size);
 		};
 	float fullW = ImGui::GetContentRegionAvail().x;
@@ -611,7 +866,7 @@ void GUI::drawGBufferDebugPanel(ID3D11ShaderResourceView* albedoMetallicSRV,
 	ImVec2 cell(cellW, cellW * 0.5625f);
 	auto target = [&](const char* label, ID3D11ShaderResourceView* srv) {
 		ImGui::BeginGroup();
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.80f, 0.72f, 0.98f, 1.0f));
+		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.64f, 0.88f, 0.80f, 1.0f));
 		ImGui::TextUnformatted(label);
 		ImGui::PopStyleColor();
 		if (srv) {
@@ -637,13 +892,13 @@ void GUI::drawRenderDebugPanel(ID3D11ShaderResourceView* preShadowSRV,
 	auto placeholder = [&](ImVec2 size, const char* msg) {
 		ImVec2 p = ImGui::GetCursorScreenPos();
 		ImDrawList* dl = ImGui::GetWindowDrawList();
-		dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(25, 22, 36, 255), 4.0f);
-		dl->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(140, 90, 230, 120), 4.0f);
-		dl->AddText(ImVec2(p.x + 10.0f, p.y + 10.0f), IM_COL32(205, 200, 225, 255), msg);
+		dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(14, 19, 21, 255), 4.0f);
+		dl->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(36, 185, 137, 125), 4.0f);
+		dl->AddText(ImVec2(p.x + 10.0f, p.y + 10.0f), IM_COL32(194, 226, 216, 255), msg);
 		ImGui::Dummy(size);
 		};
 	auto section = [&](const char* label, ID3D11ShaderResourceView* srv, ImVec2 size) {
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.72f, 0.55f, 1.0f, 1.0f));
+		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.30f, 0.92f, 0.70f, 1.0f));
 		ImGui::TextUnformatted(label);
 		ImGui::PopStyleColor();
 		if (srv) {
@@ -664,7 +919,7 @@ void GUI::drawRenderDebugPanel(ID3D11ShaderResourceView* preShadowSRV,
 }
 
 void GUI::drawLightingPanel(float* lightDir, float* lightColor) {
-	ImGui::Begin("Lighting");
+	ImGui::Begin("Iluminacion");
 	ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.72f, 0.28f, 0.40f, 1.0f));
 	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.36f, 0.48f, 1.0f));
 	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.60f, 0.20f, 0.32f, 1.0f));
@@ -676,7 +931,7 @@ void GUI::drawLightingPanel(float* lightDir, float* lightColor) {
 	ImGui::PopStyleColor(3);
 	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Restaura transforms, luz y camara a sus valores originales");
 	ImGui::Separator();
-	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.72f, 0.55f, 1.0f, 1.0f));
+	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.30f, 0.92f, 0.70f, 1.0f));
 	ImGui::TextUnformatted("Luz direccional principal");
 	ImGui::PopStyleColor();
 	ImGui::Spacing();
@@ -686,7 +941,7 @@ void GUI::drawLightingPanel(float* lightDir, float* lightColor) {
 }
 
 void GUI::drawStatsPanel(float deltaTime, unsigned int drawCalls) {
-	ImGui::Begin("Performance");
+	ImGui::Begin("Rendimiento");
 	static float history[120] = {};
 	static int idx = 0;
 	static float accum = 0.0f; static int frames = 0;
@@ -697,7 +952,7 @@ void GUI::drawStatsPanel(float deltaTime, unsigned int drawCalls) {
 	accum += deltaTime; frames++;
 	if (accum >= 0.25f) { fps = frames / accum; ms = (accum / frames) * 1000.0f; accum = 0.0f; frames = 0; }
 
-	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.72f, 0.55f, 1.0f, 1.0f));
+	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.30f, 0.92f, 0.70f, 1.0f));
 	ImGui::SetWindowFontScale(1.7f);
 	ImGui::Text("%.0f FPS", fps);
 	ImGui::SetWindowFontScale(1.0f);
@@ -712,7 +967,7 @@ void GUI::drawStatsPanel(float deltaTime, unsigned int drawCalls) {
 	ImGui::Spacing(); ImGui::Separator();
 
 	// --- Metricas del frame ---
-	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.80f, 0.72f, 0.98f, 1.0f));
+	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.64f, 0.88f, 0.80f, 1.0f));
 	ImGui::Text("Draw calls:");
 	ImGui::PopStyleColor();
 	ImGui::SameLine();
@@ -724,14 +979,14 @@ void GUI::drawStatsPanel(float deltaTime, unsigned int drawCalls) {
 
 
 void GUI::drawConsolePanel() {
-	ImGui::Begin("Console");
-	if (ImGui::Button("Clear")) Logger::get().clear();
+	ImGui::Begin("Consola");
+	if (ImGui::Button("Limpiar")) Logger::get().clear();
 	ImGui::SameLine();
 	ImGui::Checkbox("Info", &m_logShowInfo); ImGui::SameLine();
-	ImGui::Checkbox("Warning", &m_logShowWarning); ImGui::SameLine();
-	ImGui::Checkbox("Error", &m_logShowError); ImGui::SameLine();
-	ImGui::Checkbox("Auto-scroll", &m_logAutoScroll); ImGui::SameLine();
-	m_logFilter.Draw("Filter", 160.0f);
+	ImGui::Checkbox("Avisos", &m_logShowWarning); ImGui::SameLine();
+	ImGui::Checkbox("Errores", &m_logShowError); ImGui::SameLine();
+	ImGui::Checkbox("Auto scroll", &m_logAutoScroll); ImGui::SameLine();
+	m_logFilter.Draw("Filtrar", 160.0f);
 	ImGui::Separator();
 	ImGui::BeginChild("ConsoleScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
 	std::vector<LogEntry> entries = Logger::get().snapshot();
@@ -759,8 +1014,8 @@ void GUI::drawConsolePanel() {
 void GUI::drawTexturePreview() {
 	if (!m_showPreview) return;
 	ImGui::SetNextWindowSize(ImVec2(720.0f, 480.0f), ImGuiCond_FirstUseEver);
-	if (ImGui::Begin("Texture Preview", &m_showPreview)) {
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.72f, 0.55f, 1.0f, 1.0f));
+	if (ImGui::Begin("Vista de textura", &m_showPreview)) {
+		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.30f, 0.92f, 0.70f, 1.0f));
 		ImGui::TextUnformatted(m_previewLabel.c_str());
 		ImGui::PopStyleColor();
 		ImGui::Separator();
@@ -775,12 +1030,12 @@ void GUI::drawTexturePreview() {
 }
 
 void GUI::drawContentBrowser(const std::vector<AssetThumb>& textureThumbs) {
-	ImGui::Begin("Content");
+	ImGui::Begin("Recursos");
 
 	if (ImGui::BeginTabBar("##ContentTabs")) {
 
 		// ---- MODELS ----
-		if (ImGui::BeginTabItem("Models")) {
+		if (ImGui::BeginTabItem("Modelos")) {
 			std::vector<std::string> models;
 			WIN32_FIND_DATAA fd;
 			HANDLE h = FindFirstFileA("Assets\\Models\\*", &fd);
@@ -827,7 +1082,7 @@ void GUI::drawContentBrowser(const std::vector<AssetThumb>& textureThumbs) {
 		}
 
 		// ---- TEXTURES ----
-		if (ImGui::BeginTabItem("Textures")) {
+		if (ImGui::BeginTabItem("Texturas")) {
 			if (textureThumbs.empty()) ImGui::TextDisabled("No hay texturas cargadas");
 			const float cell = 84.0f;
 			float availW = ImGui::GetContentRegionAvail().x;
@@ -887,7 +1142,7 @@ void GUI::drawSelectionOutline(Camera& cam, const EU::Vector3& mn, const EU::Vec
 		int a = edges[e][0], b = edges[e][1];
 		if (valid[a] && valid[b]) {
 			m_viewportDrawList->AddLine(pts[a], pts[b], IM_COL32(0, 0, 0, 160), 4.0f);
-			m_viewportDrawList->AddLine(pts[a], pts[b], IM_COL32(190, 140, 255, 240), 2.0f);
+			m_viewportDrawList->AddLine(pts[a], pts[b], IM_COL32(46, 230, 169, 240), 2.0f);
 		}
 	}
 }
