@@ -159,11 +159,11 @@ BaseApp::init() {
 
 	// ---- Cargar modelo Rana + texturas PBR ----
 	std::vector<MeshComponent> ranaMeshes;
-	m_ranaModel = new Model3D("Assets/Models/Bake_Sci-fiToad.fbx", ModelType::FBX);
+	m_ranaModel = new Model3D("Assets/Models/Rana.fbx", ModelType::FBX);
 	ranaMeshes = m_ranaModel->GetMeshes();
 
 	if (ranaMeshes.empty()) {
-		ERROR("Main", "InitDevice", "Bake_Sci-fiToad.fbx no contiene mallas o no pudo cargarse.");
+		ERROR("Main", "InitDevice", "Rana.fbx no contiene mallas o no pudo cargarse.");
 		return E_FAIL;
 	}
 
@@ -323,10 +323,10 @@ BaseApp::init() {
 	// ---- Actor 1 ----
 	m_rana01 = EU::MakeShared<Actor>(m_device);
 	if (m_rana01.isNull()) { ERROR("Main", "InitDevice", "Failed actor 1."); return E_FAIL; }
-	m_rana01->setName("Rana_01");
+		m_rana01->setName("Rana_01");
 	m_rana01->getComponent<Transform>()->setTransform(
 		EU::Vector3(0.0f, 0.0f, 5.60f),
-		EU::Vector3(0.0f, XM_PIDIV2, 0.0f),
+		EU::Vector3(0.0f, 0.0f, 0.0f),
 		EU::Vector3(0.10f, 0.10f, 0.10f));
 	{
 		EU::TSharedPointer<MeshRendererComponent> mr = m_rana01->getComponent<MeshRendererComponent>();
@@ -513,20 +513,124 @@ BaseApp::update(float deltaTime) {
 		dPrev = dNow; cPrev = cNow; vPrev = vNow; delPrev = delNow;
 	}
 
-	// --- Navegacion de camara ---
+	// --- Navegacion de camara estilo Unreal ---
+	// Controles:
+	//   Clic derecho + mover mouse: mirar alrededor.
+	//   W/S: avanzar y retroceder.
+	//   A/D: desplazarse a izquierda y derecha.
+	//   Q/E: bajar y subir.
+	//   Shift: aumentar la velocidad.
+	//   Rueda: acercar o alejar la camara.
+	//   Clic central + mover mouse: desplazar la vista.
+	//   Flechas: girar la camara sin usar el mouse.
 	if (!m_gui.m_isUsingGizmo) {
 		ImGuiIO& io = ImGui::GetIO();
-		if (m_gui.m_viewportHovered) {
-			if (io.MouseWheel != 0.0f) m_camera.walk(io.MouseWheel * 0.7f);
-			if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-				m_camera.yaw(io.MouseDelta.x * 0.004f);
-				m_camera.pitch(io.MouseDelta.y * 0.004f);
+
+		if (m_gui.m_viewportHovered && !io.WantTextInput) {
+			const bool ctrlPressed =
+				(GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+			const bool altPressed =
+				(GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+			const bool rightMouseDown =
+				ImGui::IsMouseDown(ImGuiMouseButton_Right);
+			const bool middleMouseDown =
+				ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+
+			// Mantiene una velocidad base que puede ajustarse con la rueda
+			// mientras se sostiene el clic derecho.
+			static float cameraMovementSpeed = 4.0f;
+
+			if (rightMouseDown && io.MouseWheel != 0.0f) {
+				cameraMovementSpeed += io.MouseWheel * 0.75f;
+
+				if (cameraMovementSpeed < 1.0f) {
+					cameraMovementSpeed = 1.0f;
+				}
+				else if (cameraMovementSpeed > 30.0f) {
+					cameraMovementSpeed = 30.0f;
+				}
 			}
-			if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
-				m_camera.strafe(-io.MouseDelta.x * 0.02f);
-				EU::Vector3 p = m_camera.getPosition();
-				p.y += io.MouseDelta.y * 0.02f;
-				m_camera.setPosition(p);
+			else if (!rightMouseDown && io.MouseWheel != 0.0f) {
+				// Sin clic derecho, la rueda acerca o aleja la camara.
+				m_camera.walk(io.MouseWheel * 0.70f);
+			}
+
+			// Clic derecho + movimiento del mouse:
+			// comportamiento de camara libre parecido a Unreal.
+			if (rightMouseDown) {
+				ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+
+				const float mouseSensitivity = 0.0040f;
+				m_camera.yaw(io.MouseDelta.x * mouseSensitivity);
+				m_camera.pitch(io.MouseDelta.y * mouseSensitivity);
+			}
+
+			// Clic central + movimiento del mouse:
+			// desplaza la vista lateral y verticalmente.
+			if (middleMouseDown) {
+				const float panSensitivity = 0.020f;
+
+				m_camera.strafe(-io.MouseDelta.x * panSensitivity);
+
+				EU::Vector3 cameraPosition = m_camera.getPosition();
+				cameraPosition.y += io.MouseDelta.y * panSensitivity;
+				m_camera.setPosition(cameraPosition);
+			}
+
+			// Evita conflictos con Ctrl+D, Ctrl+C, Ctrl+V y otros atajos.
+			if (!ctrlPressed && !altPressed) {
+				float movementSpeed = cameraMovementSpeed;
+
+				if ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0) {
+					movementSpeed *= 2.5f;
+				}
+
+				const float movement = movementSpeed * deltaTime;
+
+				if ((GetAsyncKeyState('W') & 0x8000) != 0) {
+					m_camera.walk(movement);
+				}
+				if ((GetAsyncKeyState('S') & 0x8000) != 0) {
+					m_camera.walk(-movement);
+				}
+				if ((GetAsyncKeyState('A') & 0x8000) != 0) {
+					m_camera.strafe(-movement);
+				}
+				if ((GetAsyncKeyState('D') & 0x8000) != 0) {
+					m_camera.strafe(movement);
+				}
+
+				EU::Vector3 cameraPosition = m_camera.getPosition();
+				bool verticalPositionChanged = false;
+
+				if ((GetAsyncKeyState('Q') & 0x8000) != 0) {
+					cameraPosition.y -= movement;
+					verticalPositionChanged = true;
+				}
+				if ((GetAsyncKeyState('E') & 0x8000) != 0) {
+					cameraPosition.y += movement;
+					verticalPositionChanged = true;
+				}
+
+				if (verticalPositionChanged) {
+					m_camera.setPosition(cameraPosition);
+				}
+
+				// Las flechas se conservan como alternativa al mouse.
+				const float rotationSpeed = 1.5f * deltaTime;
+
+				if ((GetAsyncKeyState(VK_LEFT) & 0x8000) != 0) {
+					m_camera.yaw(-rotationSpeed);
+				}
+				if ((GetAsyncKeyState(VK_RIGHT) & 0x8000) != 0) {
+					m_camera.yaw(rotationSpeed);
+				}
+				if ((GetAsyncKeyState(VK_UP) & 0x8000) != 0) {
+					m_camera.pitch(-rotationSpeed);
+				}
+				if ((GetAsyncKeyState(VK_DOWN) & 0x8000) != 0) {
+					m_camera.pitch(rotationSpeed);
+				}
 			}
 		}
 	}
@@ -1056,11 +1160,11 @@ BaseApp::savePrefabSelected() {
 	std::string n = src->getName();
 	for (char& ch : n) if (ch == ' ') ch = '_';
 	f << "PREFAB 1";
-	f << "NAME " << n << "";
-	f << "POSITION " << p.x << " " << p.y << " " << p.z << "";
-	f << "ROTATION " << r.x << " " << r.y << " " << r.z << "";
-	f << "SCALE " << s.x << " " << s.y << " " << s.z << "";
-	MESSAGE("BaseApp", "savePrefab", "Prefab guardado en Saved/actor.prefab");
+		f << "NAME " << n << "";
+		f << "POSITION " << p.x << " " << p.y << " " << p.z << "";
+		f << "ROTATION " << r.x << " " << r.y << " " << r.z << "";
+		f << "SCALE " << s.x << " " << s.y << " " << s.z << "";
+		MESSAGE("BaseApp", "savePrefab", "Prefab guardado en Saved/actor.prefab");
 }
 
 void
