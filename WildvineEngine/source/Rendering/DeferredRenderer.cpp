@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file DeferredRenderer.cpp
  * @brief Implementa la logica de DeferredRenderer dentro del subsistema Rendering.
  * @ingroup rendering

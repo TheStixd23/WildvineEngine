@@ -1,4 +1,4 @@
-/**
+ï»¿/**
  * @file SceneGraph.cpp
  * @brief Implementa la logica de SceneGraph dentro del subsistema SceneGraph.
  * @ingroup scenegraph
@@ -13,6 +13,7 @@
 #include "EngineUtilities/Utilities/Camera.h"
 #include "Rendering/Material.h"
 #include "Rendering/MaterialInstance.h"
+#include "Rendering/Mesh.h"
 #include "Rendering/RenderScene.h"
 
 void SceneGraph::init() {
@@ -131,7 +132,7 @@ SceneGraph::attach(Entity* child, Entity* parent)
 	if (!child || !parent) return false;
 	if (child == parent) return false;
 
-	// Registro automático
+	// Registro automÃ¡tico
 	addEntity(child);
 	addEntity(parent);
 
@@ -180,7 +181,7 @@ SceneGraph::update(float deltaTime, DeviceContext& deviceContext) {
 		e->update(deltaTime, deviceContext);
 	}
 
-	// 2) Propagación World: procesa roots
+	// 2) PropagaciÃ³n World: procesa roots
 	for (Entity* e : m_entities)
 	{
 		if (!e) continue;
@@ -254,18 +255,59 @@ SceneGraph::gatherRenderScene(RenderScene& outScene, const Camera& camera) {
 		float dz = objectPos.z - cameraPos.z;
 		renderObject.distanceToCamera = dx * dx + dy * dy + dz * dz;
 
-		MaterialDomain domain = MaterialDomain::Opaque;
-		if (renderObject.materialInstance &&
-			renderObject.materialInstance->getMaterial()) {
-			domain = renderObject.materialInstance->getMaterial()->getDomain();
+		bool hasOpaqueSubmeshes = false;
+		bool hasTransparentSubmeshes = false;
+
+		if (renderObject.mesh) {
+			const std::vector<Submesh>& submeshes =
+				renderObject.mesh->getSubmeshes();
+
+			for (const Submesh& submesh : submeshes) {
+				MaterialInstance* materialInstance =
+					renderObject.materialInstance;
+
+				if (submesh.materialSlot <
+					renderObject.materialInstances.size() &&
+					renderObject.materialInstances[
+						submesh.materialSlot]) {
+					materialInstance =
+						renderObject.materialInstances[
+							submesh.materialSlot];
+				}
+
+				Material* material =
+					materialInstance
+					? materialInstance->getMaterial()
+					: nullptr;
+
+				const MaterialDomain domain =
+					material
+					? material->getDomain()
+					: MaterialDomain::Opaque;
+
+				if (domain == MaterialDomain::Transparent)
+					hasTransparentSubmeshes = true;
+				else
+					hasOpaqueSubmeshes = true;
+			}
 		}
 
-		renderObject.transparent = (domain == MaterialDomain::Transparent);
-		if (renderObject.transparent) {
-			outScene.transparentObjects.push_back(renderObject);
+		if (!hasOpaqueSubmeshes &&
+			!hasTransparentSubmeshes) {
+			hasOpaqueSubmeshes = true;
 		}
-		else {
-			outScene.opaqueObjects.push_back(renderObject);
+
+		if (hasOpaqueSubmeshes) {
+			RenderObject opaqueObject = renderObject;
+			opaqueObject.transparent = false;
+			outScene.opaqueObjects.push_back(opaqueObject);
+		}
+
+		if (hasTransparentSubmeshes) {
+			RenderObject transparentObject = renderObject;
+			transparentObject.transparent = true;
+			outScene.transparentObjects.push_back(
+				transparentObject);
 		}
 	}
 }

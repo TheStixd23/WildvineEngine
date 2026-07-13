@@ -1,4 +1,5 @@
-#include "Model3D.h"
+ï»¿#include "Model3D.h"
+#include <cfloat>
 
 bool
 Model3D::load(const std::string& path) {
@@ -7,7 +8,7 @@ Model3D::load(const std::string& path) {
 
     init();
 
-    bool success = true; // Cambia esto según el resultado real.
+    bool success = true; // Cambia esto segÃºn el resultado real.
 
     SetState(success ? ResourceState::Loaded : ResourceState::Failed);
     return success;
@@ -61,6 +62,8 @@ Model3D::InitializeFBXManager() {
 
 std::vector<MeshComponent>
 Model3D::LoadFBXModel(const std::string& filePath) {
+    m_meshes.clear();
+
     // 01. Initialize the SDK from FBX Manager
     if (InitializeFBXManager()) {
         // 02. Create an importer using the SDK manager
@@ -139,212 +142,890 @@ Model3D::ProcessFBXNode(FbxNode* node) {
     }
 }
 
+
 void
 Model3D::ProcessFBXMesh(FbxNode* node) {
-    FbxMesh* mesh = node->GetMesh();
-    if (!mesh) return;
-
-    // --- Asegura normales/tangentes en el FBX ---
-    if (mesh->GetElementNormalCount() == 0)
-        mesh->GenerateNormals(true, true);
-
-    const char* uvSetName = nullptr;
-    {
-        FbxStringList uvSets; mesh->GetUVSetNames(uvSets);
-        if (uvSets.GetCount() > 0) uvSetName = uvSets[0];
+    FbxMesh* mesh = node ? node->GetMesh() : nullptr;
+    if (!mesh) {
+        return;
     }
 
-    if (mesh->GetElementTangentCount() == 0 && uvSetName)
+    // ------------------------------------------------------------
+    // Transformacion del nodo
+    // ------------------------------------------------------------
+    FbxAMatrix geometricTransform;
+    geometricTransform.SetIdentity();
+    geometricTransform.SetT(
+        node->GetGeometricTranslation(FbxNode::eSourcePivot));
+    geometricTransform.SetR(
+        node->GetGeometricRotation(FbxNode::eSourcePivot));
+    geometricTransform.SetS(
+        node->GetGeometricScaling(FbxNode::eSourcePivot));
+
+    const FbxAMatrix vertexTransform =
+        node->EvaluateGlobalTransform() *
+        geometricTransform;
+
+    const FbxAMatrix normalTransform =
+        vertexTransform.Inverse().Transpose();
+
+    // ------------------------------------------------------------
+    // Normales, UV y tangentes
+    // ------------------------------------------------------------
+    if (mesh->GetElementNormalCount() == 0) {
+        mesh->GenerateNormals(true, true);
+    }
+
+    FbxStringList uvSets;
+    mesh->GetUVSetNames(uvSets);
+    const char* uvSetName =
+        uvSets.GetCount() > 0
+        ? uvSets[0]
+        : nullptr;
+
+    if (mesh->GetElementTangentCount() == 0 &&
+        uvSetName) {
         mesh->GenerateTangentsData(uvSetName);
+    }
 
-    const FbxGeometryElementUV* uvElem = (mesh->GetElementUVCount() > 0) ? mesh->GetElementUV(0) : nullptr;
-    const FbxGeometryElementTangent* tanElem = (mesh->GetElementTangentCount() > 0) ? mesh->GetElementTangent(0) : nullptr;
-    const FbxGeometryElementBinormal* binElem = (mesh->GetElementBinormalCount() > 0) ? mesh->GetElementBinormal(0) : nullptr;
+    const FbxGeometryElementUV* uvElement =
+        mesh->GetElementUVCount() > 0
+        ? mesh->GetElementUV(0)
+        : nullptr;
 
-    std::vector<SimpleVertex>       vertices;
-    std::vector<unsigned int> indices;
-    vertices.reserve(mesh->GetPolygonCount() * 3);
-    indices.reserve(mesh->GetPolygonCount() * 3);
+    const FbxGeometryElementTangent* tangentElement =
+        mesh->GetElementTangentCount() > 0
+        ? mesh->GetElementTangent(0)
+        : nullptr;
 
-    // Helpers de lectura (control point vs. polygon-vertex)
-    auto readV2 = [](const FbxGeometryElementUV* elem, int cpIdx, int pvIdx) -> FbxVector2 {
-        if (!elem) return FbxVector2(0, 0);
-        using E = FbxGeometryElement;
-        int idx;
-        if (elem->GetMappingMode() == E::eByControlPoint)
-            idx = (elem->GetReferenceMode() == E::eIndexToDirect) ? elem->GetIndexArray().GetAt(cpIdx) : cpIdx;
-        else
-            idx = (elem->GetReferenceMode() == E::eIndexToDirect) ? elem->GetIndexArray().GetAt(pvIdx) : pvIdx;
-        return elem->GetDirectArray().GetAt(idx);
+    const FbxGeometryElementBinormal* binormalElement =
+        mesh->GetElementBinormalCount() > 0
+        ? mesh->GetElementBinormal(0)
+        : nullptr;
+
+    const FbxGeometryElementMaterial* materialElement =
+        mesh->GetElementMaterial();
+
+    auto toLower =
+        [](std::string text) {
+            for (char& character : text) {
+                if (character >= 'A' &&
+                    character <= 'Z') {
+                    character =
+                        static_cast<char>(
+                            character + ('a' - 'A'));
+                }
+            }
+            return text;
         };
-    auto readV4 = [](auto* elem, int cpIdx, int pvIdx) -> FbxVector4 {
-        if (!elem) return FbxVector4(0, 0, 0, 0);
-        using E = FbxGeometryElement;
-        int idx;
-        if (elem->GetMappingMode() == E::eByControlPoint)
-            idx = (elem->GetReferenceMode() == E::eIndexToDirect) ? elem->GetIndexArray().GetAt(cpIdx) : cpIdx;
-        else
-            idx = (elem->GetReferenceMode() == E::eIndexToDirect) ? elem->GetIndexArray().GetAt(pvIdx) : pvIdx;
-        return elem->GetDirectArray().GetAt(idx);
+
+    const std::string nodeName =
+        node->GetName()
+        ? node->GetName()
+        : "Mesh";
+
+    const std::string lowerNodeName =
+        toLower(nodeName);
+
+    const bool isTireAssembly =
+        lowerNodeName.find("_tireb_") !=
+            std::string::npos ||
+        lowerNodeName.find("sidewall") !=
+            std::string::npos;
+
+    // ------------------------------------------------------------
+    // El FBX del Alfa Romeo contiene dos ruedas dentro de cada
+    // geometria de eje:
+    //
+    // - Una rueda se encuentra cerca del origen local.
+    // - La rueda contraria aparece desplazada 6-8 metros.
+    //
+    // El visor original recoloca esa segunda mitad. El cargador anterior
+    // no lo hacia y por eso las ruedas aparecian flotando.
+    //
+    // Detectamos el gran salto en X y calculamos una correccion para que
+    // la rueda lejana quede simetrica respecto al centro del automovil.
+    // ------------------------------------------------------------
+    bool hasSeparatedTireCopy = false;
+    double tireSplitX = 0.0;
+    FbxVector4 farWheelWorldCorrection(
+        0.0, 0.0, 0.0, 0.0);
+
+    if (isTireAssembly &&
+        mesh->GetControlPointsCount() > 1) {
+
+        std::vector<double> xValues;
+        xValues.reserve(
+            mesh->GetControlPointsCount());
+
+        for (int controlPointIndex = 0;
+            controlPointIndex <
+                mesh->GetControlPointsCount();
+            ++controlPointIndex) {
+
+            xValues.push_back(
+                mesh->GetControlPointAt(
+                    controlPointIndex)[0]);
+        }
+
+        std::sort(
+            xValues.begin(),
+            xValues.end());
+
+        double largestGap = 0.0;
+        size_t largestGapIndex = 0;
+
+        for (size_t valueIndex = 0;
+            valueIndex + 1 < xValues.size();
+            ++valueIndex) {
+
+            const double gap =
+                xValues[valueIndex + 1] -
+                xValues[valueIndex];
+
+            if (gap > largestGap) {
+                largestGap = gap;
+                largestGapIndex = valueIndex;
+            }
+        }
+
+        // El salto real del modelo supera ampliamente un metro.
+        if (largestGap > 1.0) {
+            hasSeparatedTireCopy = true;
+
+            tireSplitX =
+                (xValues[largestGapIndex] +
+                    xValues[largestGapIndex + 1]) *
+                0.5;
+
+            FbxVector4 nearMinimum(
+                DBL_MAX, DBL_MAX, DBL_MAX, 1.0);
+            FbxVector4 nearMaximum(
+                -DBL_MAX, -DBL_MAX, -DBL_MAX, 1.0);
+            FbxVector4 farMinimum(
+                DBL_MAX, DBL_MAX, DBL_MAX, 1.0);
+            FbxVector4 farMaximum(
+                -DBL_MAX, -DBL_MAX, -DBL_MAX, 1.0);
+
+            for (int controlPointIndex = 0;
+                controlPointIndex <
+                    mesh->GetControlPointsCount();
+                ++controlPointIndex) {
+
+                const FbxVector4 point =
+                    mesh->GetControlPointAt(
+                        controlPointIndex);
+
+                FbxVector4& minimum =
+                    point[0] <= tireSplitX
+                    ? nearMinimum
+                    : farMinimum;
+
+                FbxVector4& maximum =
+                    point[0] <= tireSplitX
+                    ? nearMaximum
+                    : farMaximum;
+
+                for (int axis = 0;
+                    axis < 3;
+                    ++axis) {
+
+                    minimum[axis] =
+                        FbxMin(
+                            minimum[axis],
+                            point[axis]);
+
+                    maximum[axis] =
+                        FbxMax(
+                            maximum[axis],
+                            point[axis]);
+                }
+            }
+
+            const FbxVector4 nearCenterLocal(
+                (nearMinimum[0] +
+                    nearMaximum[0]) * 0.5,
+                (nearMinimum[1] +
+                    nearMaximum[1]) * 0.5,
+                (nearMinimum[2] +
+                    nearMaximum[2]) * 0.5,
+                1.0);
+
+            const FbxVector4 farCenterLocal(
+                (farMinimum[0] +
+                    farMaximum[0]) * 0.5,
+                (farMinimum[1] +
+                    farMaximum[1]) * 0.5,
+                (farMinimum[2] +
+                    farMaximum[2]) * 0.5,
+                1.0);
+
+            const FbxVector4 nearCenterWorld =
+                vertexTransform.MultT(
+                    nearCenterLocal);
+
+            const FbxVector4 farCenterWorld =
+                vertexTransform.MultT(
+                    farCenterLocal);
+
+            // Posicion deseada: espejo de la rueda cercana
+            // alrededor del plano central X = 0.
+            const FbxVector4 desiredFarCenterWorld(
+                -nearCenterWorld[0],
+                nearCenterWorld[1],
+                nearCenterWorld[2],
+                1.0);
+
+            farWheelWorldCorrection =
+                desiredFarCenterWorld -
+                farCenterWorld;
+
+            farWheelWorldCorrection[3] = 0.0;
+
+            const std::wstring nodeNameWide(
+                nodeName.begin(),
+                nodeName.end());
+
+            MESSAGE(
+                "ModelLoader",
+                "ProcessFBXMesh",
+                L"Corrigiendo pareja de ruedas: "
+                << nodeNameWide);
+        }
+    }
+
+    // ------------------------------------------------------------
+    // Separa la geometria por material del FBX.
+    // Esto es indispensable para que llanta, rin, cromo y piezas negras
+    // no reciban el mismo material.
+    // ------------------------------------------------------------
+    int materialCount =
+        node->GetMaterialCount();
+
+    if (materialCount < 1) {
+        materialCount = 1;
+    }
+
+    struct MeshBuilder {
+        std::string name;
+        std::vector<SimpleVertex> vertices;
+        std::vector<unsigned int> indices;
+    };
+
+    std::vector<MeshBuilder> builders(
+        static_cast<size_t>(
+            materialCount));
+
+    for (int materialIndex = 0;
+        materialIndex < materialCount;
+        ++materialIndex) {
+
+        std::string materialName =
+            "Default";
+
+        if (materialIndex <
+            node->GetMaterialCount()) {
+
+            FbxSurfaceMaterial* material =
+                node->GetMaterial(
+                    materialIndex);
+
+            if (material &&
+                material->GetName()) {
+                materialName =
+                    material->GetName();
+            }
+        }
+
+        builders[materialIndex].name =
+            nodeName +
+            "__mat_" +
+            materialName;
+    }
+
+    auto getPolygonMaterialIndex =
+        [materialElement,
+            materialCount](
+                int polygonIndex) {
+
+            if (!materialElement ||
+                materialCount <= 1) {
+                return 0;
+            }
+
+            int materialIndex = 0;
+
+            switch (
+                materialElement->
+                    GetMappingMode()) {
+
+            case FbxGeometryElement::eByPolygon:
+                if (materialElement->
+                    GetReferenceMode() ==
+                    FbxGeometryElement::
+                        eIndexToDirect) {
+
+                    materialIndex =
+                        materialElement->
+                            GetIndexArray().
+                            GetAt(
+                                polygonIndex);
+                }
+                else {
+                    materialIndex =
+                        polygonIndex;
+                }
+                break;
+
+            case FbxGeometryElement::eAllSame:
+            default:
+                if (materialElement->
+                    GetIndexArray().
+                    GetCount() > 0) {
+
+                    materialIndex =
+                        materialElement->
+                            GetIndexArray().
+                            GetAt(0);
+                }
+                break;
+            }
+
+            if (materialIndex < 0 ||
+                materialIndex >=
+                    materialCount) {
+                materialIndex = 0;
+            }
+
+            return materialIndex;
         };
 
-    // --- Construcción por esquina (corner) ---
-    for (int p = 0; p < mesh->GetPolygonCount(); ++p)
-    {
-        const int polySize = mesh->GetPolygonSize(p);
-        std::vector<unsigned> cornerIdx; cornerIdx.reserve(polySize);
+    auto readVector4 =
+        [](const auto* element,
+            int controlPointIndex,
+            int polygonVertexIndex) {
 
-        for (int v = 0; v < polySize; ++v)
-        {
-            const int cpIndex = mesh->GetPolygonVertex(p, v);
-            const int pvIndex = mesh->GetPolygonVertexIndex(p) + v;
+            if (!element) {
+                return FbxVector4(
+                    0.0, 0.0, 0.0, 0.0);
+            }
 
-            SimpleVertex out{};
+            int elementIndex = 0;
 
-            // Posición (espacio local)
-            FbxVector4 P = mesh->GetControlPointAt(cpIndex);
-            out.Position = { (float)P[0], (float)P[1], (float)P[2] };
+            if (element->
+                GetMappingMode() ==
+                FbxGeometryElement::
+                    eByControlPoint) {
 
-            // Normal por esquina
-            FbxVector4 N(0, 1, 0, 0);
-            mesh->GetPolygonVertexNormal(p, v, N);
-            N.Normalize();
-            out.Normal = { (float)N[0], (float)N[1], (float)N[2] };
-
-            // UV (invertir V para DX)
-            if (uvElem && uvSetName) {
-                int uvIdx = mesh->GetTextureUVIndex(p, v);
-                FbxVector2 uv = (uvIdx >= 0) ? uvElem->GetDirectArray().GetAt(uvIdx)
-                    : readV2(uvElem, cpIndex, pvIndex);
-                out.TextureCoordinate = { (float)uv[0], 1.0f - (float)uv[1] };
+                elementIndex =
+                    controlPointIndex;
             }
             else {
-                out.TextureCoordinate = { 0.0f, 0.0f };
+                elementIndex =
+                    polygonVertexIndex;
             }
 
-            // Tangente / Bitangente si existen
-            if (tanElem) {
-                FbxVector4 T = readV4(tanElem, cpIndex, pvIndex);
-                out.Tangent = { (float)T[0], (float)T[1], (float)T[2] };
+            if (element->
+                GetReferenceMode() ==
+                FbxGeometryElement::
+                    eIndexToDirect) {
+
+                elementIndex =
+                    element->
+                        GetIndexArray().
+                        GetAt(
+                            elementIndex);
             }
-            else out.Tangent = { 0,0,0 };
 
-            if (binElem) {
-                FbxVector4 B = readV4(binElem, cpIndex, pvIndex);
-                out.Bitangent = { (float)B[0], (float)B[1], (float)B[2] };
-            }
-            else out.Bitangent = { 0,0,0 };
-
-            cornerIdx.push_back((unsigned)vertices.size());
-            vertices.push_back(out);
-        }
-
-        // Triangula en “fan” (CW por defecto)
-        for (int k = 1; k + 1 < polySize; ++k) {
-            indices.push_back(cornerIdx[0]);
-            indices.push_back(cornerIdx[k + 1]);
-            indices.push_back(cornerIdx[k]);
-        }
-    }
-
-    // --- Fallback: calcula T/B si faltan ---
-    if (mesh->GetElementTangentCount() == 0 || mesh->GetElementBinormalCount() == 0)
-    {
-        auto add = [](EU::Vector3 a, const EU::Vector3& b) { a.x += b.x; a.y += b.y; a.z += b.z; return a; };
-        auto sub = [](const EU::Vector3& a, const EU::Vector3& b) { return EU::Vector3(a.x - b.x, a.y - b.y, a.z - b.z); };
-        auto mul = [](const EU::Vector3& a, float s) { return EU::Vector3(a.x * s, a.y * s, a.z * s); };
-
-        for (size_t i = 0; i + 2 < indices.size(); i += 3)
-        {
-            SimpleVertex& v0 = vertices[indices[i + 0]];
-            SimpleVertex& v1 = vertices[indices[i + 1]];
-            SimpleVertex& v2 = vertices[indices[i + 2]];
-
-            EU::Vector3 e1 = sub(v1.Position, v0.Position);
-            EU::Vector3 e2 = sub(v2.Position, v0.Position);
-
-            float du1 = v1.TextureCoordinate.x - v0.TextureCoordinate.x;
-            float dv1 = v1.TextureCoordinate.y - v0.TextureCoordinate.y;
-            float du2 = v2.TextureCoordinate.x - v0.TextureCoordinate.x;
-            float dv2 = v2.TextureCoordinate.y - v0.TextureCoordinate.y;
-
-            float denom = du1 * dv2 - du2 * dv1;
-            float r = (std::fabs(denom) < 1e-8f) ? 0.0f : 1.0f / denom;
-
-            EU::Vector3 T = mul(EU::Vector3(e1.x * dv2 - e2.x * dv1, e1.y * dv2 - e2.y * dv1, e1.z * dv2 - e2.z * dv1), r);
-            EU::Vector3 B = mul(EU::Vector3(e2.x * du1 - e1.x * du2, e2.y * du1 - e1.y * du2, e2.z * du1 - e1.z * du2), r);
-
-            v0.Tangent = add(v0.Tangent, T);
-            v1.Tangent = add(v1.Tangent, T);
-            v2.Tangent = add(v2.Tangent, T);
-            v0.Bitangent = add(v0.Bitangent, B);
-            v1.Bitangent = add(v1.Bitangent, B);
-            v2.Bitangent = add(v2.Bitangent, B);
-        }
-    }
-
-    // --- Autodetecta espejo global del nodo y corrige de forma CONSISTENTE ---
-    bool autoDetectMirror = true;
-    bool forceFlipWinding = true; // pon true si quieres forzar flip aunque no haya espejo
-
-    bool mirrored = true;
-    if (autoDetectMirror) {
-        // world = global * geometric (aunque no lo horneamos a vértices, lo usamos para detectar espejo)
-        FbxAMatrix geo;
-        geo.SetT(node->GetGeometricTranslation(FbxNode::eSourcePivot));
-        geo.SetR(node->GetGeometricRotation(FbxNode::eSourcePivot));
-        geo.SetS(node->GetGeometricScaling(FbxNode::eSourcePivot));
-        FbxAMatrix world = node->EvaluateGlobalTransform() * geo;
-
-        // El signo del producto de escalas indica espejo
-        FbxVector4 S = world.GetS();
-        double detScale = S[0] * S[1] * S[2];
-        mirrored = (detScale < 0.0);
-    }
-
-    if (mirrored || forceFlipWinding) {
-        // 1) Flip global del winding (todas las caras)
-        for (size_t i = 0; i + 2 < indices.size(); i += 3)
-            std::swap(indices[i + 1], indices[i + 2]);
-
-        // 2) Invierte TODAS las normales/tangentes/bitangentes (consistencia total)
-        for (auto& v : vertices) {
-            v.Normal = { v.Normal.x,    v.Normal.y,    v.Normal.z };
-            v.Tangent = { v.Tangent.x,   v.Tangent.y,   v.Tangent.z };
-            v.Bitangent = { v.Bitangent.x, v.Bitangent.y, v.Bitangent.z };
-        }
-    }
-
-    // --- Ortonormaliza TBN por vértice ---
-    auto dot3 = [](const EU::Vector3& a, const EU::Vector3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; };
-    auto norm3 = [](EU::Vector3& v) { float l = std::sqrt(EU::EMax(1e-20f, v.x * v.x + v.y * v.y + v.z * v.z)); v.x /= l; v.y /= l; v.z /= l; };
-    auto sub3 = [](const EU::Vector3& a, const EU::Vector3& b) { return EU::Vector3(a.x - b.x, a.y - b.y, a.z - b.z); };
-    auto cross3 = [](const EU::Vector3& a, const EU::Vector3& b) {
-        return EU::Vector3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+            return element->
+                GetDirectArray().
+                GetAt(
+                    elementIndex);
         };
 
-    for (auto& v : vertices)
-    {
-        norm3(v.Normal);
-        float dTN = dot3(v.Tangent, v.Normal);
-        v.Tangent = sub3(v.Tangent, EU::Vector3(v.Normal.x * dTN, v.Normal.y * dTN, v.Normal.z * dTN));
-        norm3(v.Tangent);
+    // ------------------------------------------------------------
+    // Construccion de triangulos por material
+    // ------------------------------------------------------------
+    for (int polygonIndex = 0;
+        polygonIndex <
+            mesh->GetPolygonCount();
+        ++polygonIndex) {
 
-        EU::Vector3 Bcalc = cross3(v.Normal, v.Tangent);
-        float hand = (dot3(Bcalc, v.Bitangent) < 0.0f) ? -1.0f : 1.0f;
-        v.Bitangent = { Bcalc.x * hand, Bcalc.y * hand, Bcalc.z * hand };
-        norm3(v.Bitangent);
+        const int polygonSize =
+            mesh->GetPolygonSize(
+                polygonIndex);
+
+        if (polygonSize < 3) {
+            continue;
+        }
+
+        const int materialIndex =
+            getPolygonMaterialIndex(
+                polygonIndex);
+
+        MeshBuilder& builder =
+            builders[
+                static_cast<size_t>(
+                    materialIndex)];
+
+        std::vector<unsigned int>
+            polygonCorners;
+
+        polygonCorners.reserve(
+            static_cast<size_t>(
+                polygonSize));
+
+        for (int polygonCorner = 0;
+            polygonCorner <
+                polygonSize;
+            ++polygonCorner) {
+
+            const int controlPointIndex =
+                mesh->GetPolygonVertex(
+                    polygonIndex,
+                    polygonCorner);
+
+            const int polygonVertexIndex =
+                mesh->
+                    GetPolygonVertexIndex(
+                        polygonIndex) +
+                polygonCorner;
+
+            const FbxVector4 localPosition =
+                mesh->GetControlPointAt(
+                    controlPointIndex);
+
+            const bool belongsToFarWheel =
+                hasSeparatedTireCopy &&
+                localPosition[0] >
+                    tireSplitX;
+
+            FbxVector4 worldPosition =
+                vertexTransform.MultT(
+                    localPosition);
+
+            if (belongsToFarWheel) {
+                worldPosition +=
+                    farWheelWorldCorrection;
+            }
+
+            SimpleVertex vertex{};
+
+            vertex.Position =
+                EU::Vector3(
+                    static_cast<float>(
+                        worldPosition[0]),
+                    static_cast<float>(
+                        worldPosition[1]),
+                    static_cast<float>(
+                        worldPosition[2]));
+
+            FbxVector4 normal(
+                0.0, 1.0, 0.0, 0.0);
+
+            mesh->
+                GetPolygonVertexNormal(
+                    polygonIndex,
+                    polygonCorner,
+                    normal);
+
+            normal[3] = 0.0;
+            normal =
+                normalTransform.MultT(
+                    normal);
+            normal[3] = 0.0;
+            normal.Normalize();
+
+            vertex.Normal =
+                EU::Vector3(
+                    static_cast<float>(
+                        normal[0]),
+                    static_cast<float>(
+                        normal[1]),
+                    static_cast<float>(
+                        normal[2]));
+
+            FbxVector2 uv(0.0, 0.0);
+
+            if (uvSetName) {
+                bool unmapped = false;
+
+                mesh->
+                    GetPolygonVertexUV(
+                        polygonIndex,
+                        polygonCorner,
+                        uvSetName,
+                        uv,
+                        unmapped);
+
+                if (unmapped) {
+                    uv = FbxVector2(
+                        0.0, 0.0);
+                }
+            }
+
+            vertex.TextureCoordinate =
+                EU::Vector2(
+                    static_cast<float>(
+                        uv[0]),
+                    1.0f -
+                    static_cast<float>(
+                        uv[1]));
+
+            if (tangentElement) {
+                FbxVector4 tangent =
+                    readVector4(
+                        tangentElement,
+                        controlPointIndex,
+                        polygonVertexIndex);
+
+                tangent[3] = 0.0;
+                tangent =
+                    normalTransform.MultT(
+                        tangent);
+                tangent[3] = 0.0;
+                tangent.Normalize();
+
+                vertex.Tangent =
+                    EU::Vector3(
+                        static_cast<float>(
+                            tangent[0]),
+                        static_cast<float>(
+                            tangent[1]),
+                        static_cast<float>(
+                            tangent[2]));
+            }
+            else {
+                vertex.Tangent =
+                    EU::Vector3(
+                        0.0f, 0.0f, 0.0f);
+            }
+
+            if (binormalElement) {
+                FbxVector4 binormal =
+                    readVector4(
+                        binormalElement,
+                        controlPointIndex,
+                        polygonVertexIndex);
+
+                binormal[3] = 0.0;
+                binormal =
+                    normalTransform.MultT(
+                        binormal);
+                binormal[3] = 0.0;
+                binormal.Normalize();
+
+                vertex.Bitangent =
+                    EU::Vector3(
+                        static_cast<float>(
+                            binormal[0]),
+                        static_cast<float>(
+                            binormal[1]),
+                        static_cast<float>(
+                            binormal[2]));
+            }
+            else {
+                vertex.Bitangent =
+                    EU::Vector3(
+                        0.0f, 0.0f, 0.0f);
+            }
+
+            polygonCorners.push_back(
+                static_cast<unsigned int>(
+                    builder.vertices.size()));
+
+            builder.vertices.push_back(
+                vertex);
+        }
+
+        // Winding horario, igual que el cargador anterior.
+        for (int triangleIndex = 1;
+            triangleIndex + 1 <
+                polygonSize;
+            ++triangleIndex) {
+
+            builder.indices.push_back(
+                polygonCorners[0]);
+
+            builder.indices.push_back(
+                polygonCorners[
+                    triangleIndex + 1]);
+
+            builder.indices.push_back(
+                polygonCorners[
+                    triangleIndex]);
+        }
     }
 
-    // --- Empaqueta ---
-    MeshComponent mc;
-    mc.m_name = node->GetName();
-    mc.m_vertex = std::move(vertices);
-    mc.m_index = std::move(indices);
-    mc.m_numVertex = (int)mc.m_vertex.size();
-    mc.m_numIndex = (int)mc.m_index.size();
-    m_meshes.push_back(std::move(mc));
+    // ------------------------------------------------------------
+    // Tangentes fallback y empaquetado
+    // ------------------------------------------------------------
+    auto addVector =
+        [](EU::Vector3 left,
+            const EU::Vector3& right) {
+
+            left.x += right.x;
+            left.y += right.y;
+            left.z += right.z;
+            return left;
+        };
+
+    auto subtractVector =
+        [](const EU::Vector3& left,
+            const EU::Vector3& right) {
+
+            return EU::Vector3(
+                left.x - right.x,
+                left.y - right.y,
+                left.z - right.z);
+        };
+
+    auto multiplyVector =
+        [](const EU::Vector3& vector,
+            float value) {
+
+            return EU::Vector3(
+                vector.x * value,
+                vector.y * value,
+                vector.z * value);
+        };
+
+    auto dotVector =
+        [](const EU::Vector3& left,
+            const EU::Vector3& right) {
+
+            return
+                left.x * right.x +
+                left.y * right.y +
+                left.z * right.z;
+        };
+
+    auto crossVector =
+        [](const EU::Vector3& left,
+            const EU::Vector3& right) {
+
+            return EU::Vector3(
+                left.y * right.z -
+                    left.z * right.y,
+                left.z * right.x -
+                    left.x * right.z,
+                left.x * right.y -
+                    left.y * right.x);
+        };
+
+    auto normalizeVector =
+        [](EU::Vector3& vector) {
+
+            const float length =
+                sqrtf(
+                    EU::EMax(
+                        1e-20f,
+                        vector.x * vector.x +
+                        vector.y * vector.y +
+                        vector.z * vector.z));
+
+            vector.x /= length;
+            vector.y /= length;
+            vector.z /= length;
+        };
+
+    for (MeshBuilder& builder :
+        builders) {
+
+        if (builder.vertices.empty() ||
+            builder.indices.empty()) {
+            continue;
+        }
+
+        if (!tangentElement ||
+            !binormalElement) {
+
+            for (size_t index = 0;
+                index + 2 <
+                    builder.indices.size();
+                index += 3) {
+
+                SimpleVertex& vertex0 =
+                    builder.vertices[
+                        builder.indices[
+                            index + 0]];
+
+                SimpleVertex& vertex1 =
+                    builder.vertices[
+                        builder.indices[
+                            index + 1]];
+
+                SimpleVertex& vertex2 =
+                    builder.vertices[
+                        builder.indices[
+                            index + 2]];
+
+                const EU::Vector3 edge1 =
+                    subtractVector(
+                        vertex1.Position,
+                        vertex0.Position);
+
+                const EU::Vector3 edge2 =
+                    subtractVector(
+                        vertex2.Position,
+                        vertex0.Position);
+
+                const float deltaU1 =
+                    vertex1.
+                        TextureCoordinate.x -
+                    vertex0.
+                        TextureCoordinate.x;
+
+                const float deltaV1 =
+                    vertex1.
+                        TextureCoordinate.y -
+                    vertex0.
+                        TextureCoordinate.y;
+
+                const float deltaU2 =
+                    vertex2.
+                        TextureCoordinate.x -
+                    vertex0.
+                        TextureCoordinate.x;
+
+                const float deltaV2 =
+                    vertex2.
+                        TextureCoordinate.y -
+                    vertex0.
+                        TextureCoordinate.y;
+
+                const float denominator =
+                    deltaU1 * deltaV2 -
+                    deltaU2 * deltaV1;
+
+                const float inverse =
+                    fabsf(denominator) <
+                        1e-8f
+                    ? 0.0f
+                    : 1.0f /
+                        denominator;
+
+                const EU::Vector3 tangent =
+                    multiplyVector(
+                        EU::Vector3(
+                            edge1.x * deltaV2 -
+                                edge2.x * deltaV1,
+                            edge1.y * deltaV2 -
+                                edge2.y * deltaV1,
+                            edge1.z * deltaV2 -
+                                edge2.z * deltaV1),
+                        inverse);
+
+                const EU::Vector3 bitangent =
+                    multiplyVector(
+                        EU::Vector3(
+                            edge2.x * deltaU1 -
+                                edge1.x * deltaU2,
+                            edge2.y * deltaU1 -
+                                edge1.y * deltaU2,
+                            edge2.z * deltaU1 -
+                                edge1.z * deltaU2),
+                        inverse);
+
+                vertex0.Tangent =
+                    addVector(
+                        vertex0.Tangent,
+                        tangent);
+                vertex1.Tangent =
+                    addVector(
+                        vertex1.Tangent,
+                        tangent);
+                vertex2.Tangent =
+                    addVector(
+                        vertex2.Tangent,
+                        tangent);
+
+                vertex0.Bitangent =
+                    addVector(
+                        vertex0.Bitangent,
+                        bitangent);
+                vertex1.Bitangent =
+                    addVector(
+                        vertex1.Bitangent,
+                        bitangent);
+                vertex2.Bitangent =
+                    addVector(
+                        vertex2.Bitangent,
+                        bitangent);
+            }
+        }
+
+        for (SimpleVertex& vertex :
+            builder.vertices) {
+
+            normalizeVector(
+                vertex.Normal);
+
+            const float tangentProjection =
+                dotVector(
+                    vertex.Tangent,
+                    vertex.Normal);
+
+            vertex.Tangent =
+                subtractVector(
+                    vertex.Tangent,
+                    EU::Vector3(
+                        vertex.Normal.x *
+                            tangentProjection,
+                        vertex.Normal.y *
+                            tangentProjection,
+                        vertex.Normal.z *
+                            tangentProjection));
+
+            normalizeVector(
+                vertex.Tangent);
+
+            EU::Vector3 calculatedBitangent =
+                crossVector(
+                    vertex.Normal,
+                    vertex.Tangent);
+
+            const float handedness =
+                dotVector(
+                    calculatedBitangent,
+                    vertex.Bitangent) <
+                    0.0f
+                ? -1.0f
+                : 1.0f;
+
+            vertex.Bitangent =
+                multiplyVector(
+                    calculatedBitangent,
+                    handedness);
+
+            normalizeVector(
+                vertex.Bitangent);
+        }
+
+        MeshComponent meshComponent;
+        meshComponent.m_name =
+            builder.name;
+        meshComponent.m_vertex =
+            std::move(
+                builder.vertices);
+        meshComponent.m_index =
+            std::move(
+                builder.indices);
+        meshComponent.m_numVertex =
+            static_cast<int>(
+                meshComponent.
+                    m_vertex.size());
+        meshComponent.m_numIndex =
+            static_cast<int>(
+                meshComponent.
+                    m_index.size());
+
+        m_meshes.push_back(
+            std::move(
+                meshComponent));
+    }
 }
+
 
 void Model3D::ProcessFBXMaterials(FbxSurfaceMaterial* material)
 {

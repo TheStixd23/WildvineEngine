@@ -287,6 +287,23 @@ ForwardRenderer::renderObject(DeviceContext& deviceContext,
 			continue;
 		}
 
+		if (passType == RenderPassType::Transparent &&
+			material->getDomain() != MaterialDomain::Transparent) {
+			continue;
+		}
+
+		if (passType != RenderPassType::Transparent &&
+			material->getDomain() == MaterialDomain::Transparent) {
+			continue;
+		}
+
+		if (passType == RenderPassType::Transparent) {
+			deviceContext.OMSetBlendState(
+				resolveBlendState(material),
+				m_blendFactor,
+				0xffffffff);
+		}
+
 		if (material->getRasterizerState()) {
 			material->getRasterizerState()->render(deviceContext);
 		}
@@ -342,11 +359,49 @@ ForwardRenderer::renderShadowObject(DeviceContext& deviceContext, const RenderOb
 	deviceContext.m_deviceContext->PSSetShader(nullptr, nullptr, 0);
 	deviceContext.IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	std::vector<Submesh>& submeshes = object.mesh->getSubmeshes();
+	std::vector<Submesh>& submeshes =
+		object.mesh->getSubmeshes();
+
 	for (Submesh& submesh : submeshes) {
-		submesh.vertexBuffer.render(deviceContext, 0, 1);
-		submesh.indexBuffer.render(deviceContext, 0, 1, false, DXGI_FORMAT_R32_UINT);
-		deviceContext.DrawIndexed(submesh.indexCount, submesh.startIndex, 0);
+		MaterialInstance* materialInstance =
+			object.materialInstance;
+
+		if (submesh.materialSlot <
+			object.materialInstances.size() &&
+			object.materialInstances[
+				submesh.materialSlot]) {
+			materialInstance =
+				object.materialInstances[
+					submesh.materialSlot];
+		}
+
+		Material* material =
+			materialInstance
+			? materialInstance->getMaterial()
+			: nullptr;
+
+		if (material &&
+			material->getDomain() ==
+				MaterialDomain::Transparent) {
+			continue;
+		}
+
+		submesh.vertexBuffer.render(
+			deviceContext,
+			0,
+			1);
+
+		submesh.indexBuffer.render(
+			deviceContext,
+			0,
+			1,
+			false,
+			DXGI_FORMAT_R32_UINT);
+
+		deviceContext.DrawIndexed(
+			submesh.indexCount,
+			submesh.startIndex,
+			0);
 	}
 }
 

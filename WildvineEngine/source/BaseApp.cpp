@@ -10,6 +10,155 @@ namespace {
 	static std::string fileBaseName(const std::string& path) { size_t s = path.find_last_of("/\\"); std::string n = (s == std::string::npos) ? path : path.substr(s + 1); return stripExt(n); }
 	static bool endsWith(const std::string& s, const std::string& suf) { return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0; }
 	static bool containsStr(const std::string& s, const std::string& sub) { return s.find(sub) != std::string::npos; }
+
+	enum CarTextureId {
+		CarTexWhite = 0,
+		CarTexBlack,
+		CarTexDarkGray,
+		CarTexGray,
+		CarTexFlatNormal,
+		CarTexMetallicBlack,
+		CarTexMetallicWhite,
+		CarTexRoughnessGloss,
+		CarTexRoughnessMedium,
+		CarTexRoughnessMatte,
+		CarTexRoughnessRubber,
+		CarTexAOWide,
+		CarTexGlass,
+		CarTexMirror,
+		CarTexDetail,
+		CarTexInterior,
+		CarTexLights,
+		CarTexWheel,
+		CarTexUndercarriage,
+		CarTexGrille1,
+		CarTexGrille2,
+		CarTexTireSidewall,
+		CarTexTireTread,
+		CarTexStitchesNormal,
+		CarTexEmissiveBlack
+	};
+
+	enum CarMaterialId {
+		CarMatPaint = 0,
+		CarMatPaintDark,
+		CarMatChrome,
+		CarMatBlack,
+		CarMatMatte,
+		CarMatRubber,
+		CarMatGlass,
+		CarMatLights,
+		CarMatInterior,
+		CarMatWheel,
+		CarMatTire,
+		CarMatTireTread,
+		CarMatGrille1,
+		CarMatGrille2,
+		CarMatDetail,
+		CarMatUndercarriage,
+		CarMatBrake,
+		CarMatMirror,
+		CarMatEmissive
+	};
+
+	static unsigned int classifyCarMaterial(const std::string& rawName) {
+		const std::string name = toLowerCopy(rawName);
+
+		// Cuando Model3D separa una geometria por materiales, el nombre
+		// queda como: Nodo__mat_NombreMaterial.
+		// Se revisa primero el material real para que el nombre del nodo
+		// "tireb" no convierta tambien el rin en goma.
+		if (containsStr(name, "__mat_material #24"))
+			return CarMatTire;
+		if (containsStr(name, "__mat_material #25"))
+			return CarMatTireTread;
+		if (containsStr(name, "__mat_wheel_black"))
+			return CarMatBlack;
+		if (containsStr(name, "__mat_outer_rim"))
+			return CarMatChrome;
+		if (containsStr(name, "__mat_inner_rim") ||
+			containsStr(name, "__mat_rim"))
+			return CarMatWheel;
+
+		if (containsStr(name, "gauge_emissive"))
+			return CarMatEmissive;
+		if (containsStr(name, "grille1"))
+			return CarMatGrille1;
+		if (containsStr(name, "grille2"))
+			return CarMatGrille2;
+
+		if (containsStr(name, "detail_glass") ||
+			containsStr(name, "lights_glass") ||
+			containsStr(name, "head_light") ||
+			containsStr(name, "tail_light") ||
+			containsStr(name, "reflector"))
+			return CarMatLights;
+
+		if (containsStr(name, "window") ||
+			containsStr(name, "_glass_") ||
+			containsStr(name, "__mat_glass"))
+			return CarMatGlass;
+
+		if (containsStr(name, "mirrorleft") ||
+			containsStr(name, "mirrormiddle"))
+			return CarMatMirror;
+
+		if (containsStr(name, "body_2"))
+			return CarMatPaintDark;
+		if (containsStr(name, "_body_"))
+			return CarMatPaint;
+
+		if (containsStr(name, "tread"))
+			return CarMatTireTread;
+		if (containsStr(name, "tire") ||
+			containsStr(name, "sidewall"))
+			return CarMatTire;
+
+		if (containsStr(name, "outer_rim"))
+			return CarMatChrome;
+		if (containsStr(name, "inner_rim") ||
+			containsStr(name, "_rim") ||
+			containsStr(name, "wheel"))
+			return CarMatWheel;
+
+		if (containsStr(name, "undercarriage"))
+			return CarMatUndercarriage;
+		if (containsStr(name, "caliper") ||
+			containsStr(name, "_brake_"))
+			return CarMatBrake;
+		if (containsStr(name, "chrome") ||
+			containsStr(name, "_metal_") ||
+			containsStr(name, "_hub_"))
+			return CarMatChrome;
+		if (containsStr(name, "badge") ||
+			containsStr(name, "emblem"))
+			return CarMatDetail;
+
+		if (containsStr(name, "interior") ||
+			containsStr(name, "seat") ||
+			containsStr(name, "steering") ||
+			containsStr(name, "gauge") ||
+			containsStr(name, "leather") ||
+			containsStr(name, "plastic") ||
+			containsStr(name, "mottled") ||
+			containsStr(name, "stitch"))
+			return CarMatInterior;
+
+		if (containsStr(name, "rubber"))
+			return CarMatRubber;
+		if (containsStr(name, "black"))
+			return CarMatBlack;
+
+		if (containsStr(name, "matte") ||
+			containsStr(name, "frame") ||
+			containsStr(name, "bottom") ||
+			containsStr(name, "misc") ||
+			containsStr(name, "solid"))
+			return CarMatMatte;
+
+		return CarMatMatte;
+	}
+
 	static ExtensionType extFromName(const std::string& lower) { if (endsWith(lower, ".jpg") || endsWith(lower, ".jpeg")) return JPG; if (endsWith(lower, ".dds")) return DDS; return PNG; }
 	static std::vector<std::string> listImageFiles(const std::string& dir) {
 		std::vector<std::string> out; std::string pat = dir + "\\*"; WIN32_FIND_DATAA fd;
@@ -214,87 +363,126 @@ BaseApp::init() {
 	};
 	m_skyboxTex.CreateCubemap(m_device, m_deviceContext, faces, false);
 
-	// ---- Cargar modelo Rana + texturas PBR ----
-	std::vector<MeshComponent> ranaMeshes;
-	m_ranaModel = new Model3D("Assets/Models/Rana.fbx", ModelType::FBX);
-	ranaMeshes = m_ranaModel->GetMeshes();
+	// ---- Cargar Alfa Romeo 33 Stradale ----
+	std::vector<MeshComponent> carMeshes;
+	m_carModel = new Model3D(
+		"Assets/Models/AlfaRomeo33Stradale.fbx",
+		ModelType::FBX);
 
-	if (ranaMeshes.empty()) {
-		ERROR("Main", "InitDevice", "Rana.fbx no contiene mallas o no pudo cargarse.");
+	carMeshes = m_carModel->GetMeshes();
+	m_carCpuMeshes = carMeshes;
+
+	if (carMeshes.empty()) {
+		ERROR(
+			"Main",
+			"InitDevice",
+			"AlfaRomeo33Stradale.fbx no contiene mallas o no pudo cargarse.");
 		return E_FAIL;
 	}
 
-	// Cuerpo
-	hr = m_ranaBodyAlbedo.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Body_BC", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Body Albedo."); return hr; }
-	hr = m_ranaBodyMetallic.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Body_M", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Body Metallic."); return hr; }
-	hr = m_ranaBodyRoughness.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Body_R", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Body Roughness."); return hr; }
-	hr = m_ranaBodyAO.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Body_AO", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Body AO."); return hr; }
-	hr = m_ranaBodyNormal.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Body_N", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Body Normal."); return hr; }
+	const std::string textureRoot =
+		"Assets/Textures/AlfaRomeo33/";
 
-	// Cabeza
-	hr = m_ranaHeadAlbedo.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Head_BC", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Head Albedo."); return hr; }
-	hr = m_ranaHeadRoughness.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Head_R", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Head Roughness."); return hr; }
-	hr = m_ranaHeadAO.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Head_AO", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Head AO."); return hr; }
-	hr = m_ranaHeadNormal.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Head_N", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Head Normal."); return hr; }
+	const char* texturePaths[kCarTextureCount] = {
+		"white",
+		"black",
+		"dark_gray",
+		"gray",
+		"flat_normal",
+		"metallic_black",
+		"metallic_white",
+		"roughness_gloss",
+		"roughness_medium",
+		"roughness_matte",
+		"roughness_rubber",
+		"ao_white",
+		"glass",
+		"mirror",
+		"detail_rgba",
+		"interior_rgba",
+		"lights_rgba",
+		"wheel_rgba",
+		"undercarriage_rgba",
+		"grille1_rgba",
+		"grille2_rgba",
+		"tire_sidewall",
+		"tire_tread",
+		"stitches_normal",
+		"emissive_black"
+	};
 
-	// Cristal. Se mantiene opaco por ahora porque el renderer clasifica
-	// la transparencia por actor completo, no por submalla.
-	hr = m_ranaGlassAlbedo.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Glass_BC", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Glass Albedo."); return hr; }
-	hr = m_ranaGlassRoughness.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Glass_R", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Glass Roughness."); return hr; }
-	hr = m_ranaGlassAO.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Glass_O", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Glass Occlusion."); return hr; }
-	hr = m_ranaGlassNormal.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Glass_N", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Glass Normal."); return hr; }
+	for (size_t textureIndex = 0;
+		textureIndex < kCarTextureCount;
+		++textureIndex) {
 
-	// ---- Mesh de render compartido por las dos instancias ----
-	m_ranaRenderMesh.destroy();
-	for (const MeshComponent& meshComponent : ranaMeshes) {
-		Submesh submesh{};
-		hr = submesh.vertexBuffer.init(m_device, meshComponent, D3D11_BIND_VERTEX_BUFFER);
-		if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana vertex buffer."); return hr; }
-		hr = submesh.indexBuffer.init(m_device, meshComponent, D3D11_BIND_INDEX_BUFFER);
-		if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana index buffer."); return hr; }
-		submesh.indexCount = meshComponent.m_numIndex;
-		submesh.startIndex = 0;
+		hr = m_carTextures[textureIndex].init(
+			m_device,
+			textureRoot + texturePaths[textureIndex],
+			PNG);
 
-		// 0 = Body, 1 = Head, 2 = Glass.
-		// El slot se decide usando el nombre de la malla dentro del FBX.
-		std::string meshName = toLowerCopy(meshComponent.m_name);
-		if (containsStr(meshName, "glass") || containsStr(meshName, "visor")) {
-			submesh.materialSlot = 2;
+		if (FAILED(hr)) {
+			ERROR(
+				"Main",
+				"InitDevice",
+				("No se pudo cargar textura del auto: " +
+					textureRoot +
+					texturePaths[textureIndex] +
+					".png").c_str());
+			return hr;
 		}
-		else if (containsStr(meshName, "head") || containsStr(meshName, "cabeza")) {
-			submesh.materialSlot = 1;
-		}
-		else {
-			submesh.materialSlot = 0;
-		}
-
-		m_ranaRenderMesh.getSubmeshes().push_back(std::move(submesh));
 	}
 
-	// AABB local del modelo (para picking)
-	m_ranaModelLocalMin = EU::Vector3(1e9f, 1e9f, 1e9f);
-	m_ranaModelLocalMax = EU::Vector3(-1e9f, -1e9f, -1e9f);
-	for (const MeshComponent& mc : ranaMeshes) {
-		for (const SimpleVertex& v : mc.m_vertex) {
-			m_ranaModelLocalMin.x = fminf(m_ranaModelLocalMin.x, v.Position.x);
-			m_ranaModelLocalMin.y = fminf(m_ranaModelLocalMin.y, v.Position.y);
-			m_ranaModelLocalMin.z = fminf(m_ranaModelLocalMin.z, v.Position.z);
-			m_ranaModelLocalMax.x = fmaxf(m_ranaModelLocalMax.x, v.Position.x);
-			m_ranaModelLocalMax.y = fmaxf(m_ranaModelLocalMax.y, v.Position.y);
-			m_ranaModelLocalMax.z = fmaxf(m_ranaModelLocalMax.z, v.Position.z);
+	m_carRenderMesh.destroy();
+
+	for (const MeshComponent& meshComponent : carMeshes) {
+		Submesh submesh{};
+
+		hr = submesh.vertexBuffer.init(
+			m_device,
+			meshComponent,
+			D3D11_BIND_VERTEX_BUFFER);
+		if (FAILED(hr)) {
+			ERROR("Main", "InitDevice", "Fallo vertex buffer del auto.");
+			return hr;
+		}
+
+		hr = submesh.indexBuffer.init(
+			m_device,
+			meshComponent,
+			D3D11_BIND_INDEX_BUFFER);
+		if (FAILED(hr)) {
+			ERROR("Main", "InitDevice", "Fallo index buffer del auto.");
+			return hr;
+		}
+
+		submesh.indexCount = meshComponent.m_numIndex;
+		submesh.startIndex = 0;
+		submesh.materialSlot =
+			classifyCarMaterial(meshComponent.m_name);
+
+		m_carRenderMesh.getSubmeshes().push_back(
+			std::move(submesh));
+	}
+
+	m_carModelLocalMin =
+		EU::Vector3(1e9f, 1e9f, 1e9f);
+	m_carModelLocalMax =
+		EU::Vector3(-1e9f, -1e9f, -1e9f);
+
+	for (const MeshComponent& meshComponent : carMeshes) {
+		for (const SimpleVertex& vertex : meshComponent.m_vertex) {
+			m_carModelLocalMin.x =
+				fminf(m_carModelLocalMin.x, vertex.Position.x);
+			m_carModelLocalMin.y =
+				fminf(m_carModelLocalMin.y, vertex.Position.y);
+			m_carModelLocalMin.z =
+				fminf(m_carModelLocalMin.z, vertex.Position.z);
+			m_carModelLocalMax.x =
+				fmaxf(m_carModelLocalMax.x, vertex.Position.x);
+			m_carModelLocalMax.y =
+				fmaxf(m_carModelLocalMax.y, vertex.Position.y);
+			m_carModelLocalMax.z =
+				fmaxf(m_carModelLocalMax.z, vertex.Position.z);
 		}
 	}
 
@@ -304,102 +492,300 @@ BaseApp::init() {
 		.Add("TANGENT", DXGI_FORMAT_R32G32B32_FLOAT)
 		.Add("BITANGENT", DXGI_FORMAT_R32G32B32_FLOAT)
 		.Add("TEXCOORD", DXGI_FORMAT_R32G32_FLOAT);
-	hr = m_shaderProgram.init(m_device, "PBRShader.hlsl", builder);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed ShaderProgram."); return hr; }
 
-	hr = m_constantBuffer.init(m_device, sizeof(CBMain));
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed constant buffer."); return hr; }
-
-	m_camera.setLens(XM_PIDIV4, m_window.m_width / (float)m_window.m_height, 0.01f, 100.0f);
-	m_camera.setPosition(0.0f, 3.0f, -6.0f);
-
-	m_constantBufferStruct.LightColor = EU::Vector3(1.0f, 1.0f, 1.0f);
-	m_constantBufferStruct.LightDir = EU::Vector3(-0.20f, -1.0f, 1.0f);
-
-	m_skybox.init(m_device, &m_deviceContext, m_skyboxTex);
-
-	hr = m_defaultRasterizer.init(m_device, D3D11_FILL_SOLID, D3D11_CULL_NONE, false, true);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rasterizer."); return hr; }
-	hr = m_defaultDepthStencil.init(m_device, true, D3D11_DEPTH_WRITE_MASK_ALL, D3D11_COMPARISON_LESS);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed DepthStencilState."); return hr; }
-	hr = m_defaultSampler.init(m_device);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed SamplerState."); return hr; }
-
-	m_pbrMaterial.setShader(&m_shaderProgram);
-	m_pbrMaterial.setRasterizerState(&m_defaultRasterizer);
-	m_pbrMaterial.setDepthStencilState(&m_defaultDepthStencil);
-	m_pbrMaterial.setSamplerState(&m_defaultSampler);
-	m_pbrMaterial.setDomain(MaterialDomain::Opaque);
-	m_pbrMaterial.setBlendMode(BlendMode::Opaque);
-
-	// ---- Material del cuerpo ----
-	m_ranaBodyMaterial.setMaterial(&m_pbrMaterial);
-	m_ranaBodyMaterial.setAlbedo(&m_ranaBodyAlbedo);
-	m_ranaBodyMaterial.setNormal(&m_ranaBodyNormal);
-	m_ranaBodyMaterial.setMetallic(&m_ranaBodyMetallic);
-	m_ranaBodyMaterial.setRoughness(&m_ranaBodyRoughness);
-	m_ranaBodyMaterial.setAO(&m_ranaBodyAO);
-	m_ranaBodyMaterial.getParams().baseColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	m_ranaBodyMaterial.getParams().metallic = 0.0f;
-	m_ranaBodyMaterial.getParams().roughness = 0.55f;
-	m_ranaBodyMaterial.getParams().ao = 1.0f;
-	m_ranaBodyMaterial.getParams().normalScale = 1.0f;
-	m_ranaBodyMaterial.getParams().emissiveStrength = 0.0f;
-	m_ranaBodyMaterial.getParams().alphaCutoff = 0.5f;
-
-	// ---- Material de la cabeza ----
-	m_ranaHeadMaterial.setMaterial(&m_pbrMaterial);
-	m_ranaHeadMaterial.setAlbedo(&m_ranaHeadAlbedo);
-	m_ranaHeadMaterial.setNormal(&m_ranaHeadNormal);
-	m_ranaHeadMaterial.setMetallic(&m_ranaBodyMetallic); // fallback: no hay mapa M de cabeza
-	m_ranaHeadMaterial.setRoughness(&m_ranaHeadRoughness);
-	m_ranaHeadMaterial.setAO(&m_ranaHeadAO);
-	m_ranaHeadMaterial.getParams().baseColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	m_ranaHeadMaterial.getParams().metallic = 0.0f;
-	m_ranaHeadMaterial.getParams().roughness = 0.60f;
-	m_ranaHeadMaterial.getParams().ao = 1.0f;
-	m_ranaHeadMaterial.getParams().normalScale = 1.0f;
-	m_ranaHeadMaterial.getParams().emissiveStrength = 0.0f;
-	m_ranaHeadMaterial.getParams().alphaCutoff = 0.5f;
-
-	// ---- Material del cristal ----
-	m_ranaGlassMaterial.setMaterial(&m_pbrMaterial);
-	m_ranaGlassMaterial.setAlbedo(&m_ranaGlassAlbedo);
-	m_ranaGlassMaterial.setNormal(&m_ranaGlassNormal);
-	m_ranaGlassMaterial.setMetallic(&m_ranaBodyMetallic); // fallback
-	m_ranaGlassMaterial.setRoughness(&m_ranaGlassRoughness);
-	m_ranaGlassMaterial.setAO(&m_ranaGlassAO);
-	m_ranaGlassMaterial.getParams().baseColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	m_ranaGlassMaterial.getParams().metallic = 0.0f;
-	m_ranaGlassMaterial.getParams().roughness = 0.20f;
-	m_ranaGlassMaterial.getParams().ao = 1.0f;
-	m_ranaGlassMaterial.getParams().normalScale = 1.0f;
-	m_ranaGlassMaterial.getParams().emissiveStrength = 0.0f;
-	m_ranaGlassMaterial.getParams().alphaCutoff = 0.5f;
-
-	// ---- Actor 1 ----
-	m_rana01 = EU::MakeShared<Actor>(m_device);
-	if (m_rana01.isNull()) { ERROR("Main", "InitDevice", "Failed actor 1."); return E_FAIL; }
-		m_rana01->setName("Rana_01");
-	m_rana01->getComponent<Transform>()->setTransform(
-		EU::Vector3(0.0f, 0.0f, 5.60f),
-		EU::Vector3(0.0f, 0.0f, 0.0f),
-		EU::Vector3(0.10f, 0.10f, 0.10f));
-	{
-		EU::TSharedPointer<MeshRendererComponent> mr = m_rana01->getComponent<MeshRendererComponent>();
-		if (!mr) { mr = EU::MakeShared<MeshRendererComponent>(); m_rana01->addComponent(mr); }
-		mr->setMesh(&m_ranaRenderMesh);
-		mr->setMaterialInstances({ &m_ranaBodyMaterial, &m_ranaHeadMaterial, &m_ranaGlassMaterial });
-		mr->setVisible(true);
-		mr->setCastShadow(true);
+	hr = m_shaderProgram.init(
+		m_device,
+		"PBRShader.hlsl",
+		builder);
+	if (FAILED(hr)) {
+		ERROR("Main", "InitDevice", "Failed ShaderProgram.");
+		return hr;
 	}
-	m_actors.push_back(m_rana01);
-	m_sceneGraph.addEntity(m_rana01.get());
-	m_actorSourcePaths[m_rana01.get()] = "Assets/Models/Rana.fbx";
 
-	// ---- Actor 2 desactivado temporalmente ----
-	// Se deja una sola rana visible para evitar que dos instancias se encimen.
-	m_rana02 = EU::TSharedPointer<Actor>();
+	hr = m_constantBuffer.init(
+		m_device,
+		sizeof(CBMain));
+	if (FAILED(hr)) {
+		ERROR("Main", "InitDevice", "Failed constant buffer.");
+		return hr;
+	}
+
+	m_camera.setLens(
+		XM_PIDIV4,
+		m_window.m_width / (float)m_window.m_height,
+		0.01f,
+		250.0f);
+	m_camera.setPosition(0.0f, 1.55f, -7.0f);
+
+	m_constantBufferStruct.LightColor =
+		EU::Vector3(1.0f, 0.98f, 0.95f);
+	m_constantBufferStruct.LightDir =
+		EU::Vector3(-0.35f, -1.0f, 0.45f);
+
+	m_skybox.init(
+		m_device,
+		&m_deviceContext,
+		m_skyboxTex);
+
+	hr = m_defaultRasterizer.init(
+		m_device,
+		D3D11_FILL_SOLID,
+		D3D11_CULL_NONE,
+		false,
+		true);
+	if (FAILED(hr)) {
+		ERROR("Main", "InitDevice", "Failed Rasterizer.");
+		return hr;
+	}
+
+	hr = m_defaultDepthStencil.init(
+		m_device,
+		true,
+		D3D11_DEPTH_WRITE_MASK_ALL,
+		D3D11_COMPARISON_LESS);
+	if (FAILED(hr)) {
+		ERROR("Main", "InitDevice", "Failed DepthStencilState.");
+		return hr;
+	}
+
+	hr = m_defaultSampler.init(m_device);
+	if (FAILED(hr)) {
+		ERROR("Main", "InitDevice", "Failed SamplerState.");
+		return hr;
+	}
+
+	auto setupBaseMaterial =
+		[this](Material& material,
+			MaterialDomain domain,
+			BlendMode blendMode) {
+			material.setShader(&m_shaderProgram);
+			material.setRasterizerState(&m_defaultRasterizer);
+			material.setDepthStencilState(&m_defaultDepthStencil);
+			material.setSamplerState(&m_defaultSampler);
+			material.setDomain(domain);
+			material.setBlendMode(blendMode);
+		};
+
+	setupBaseMaterial(
+		m_pbrMaterial,
+		MaterialDomain::Opaque,
+		BlendMode::Opaque);
+	setupBaseMaterial(
+		m_maskedPbrMaterial,
+		MaterialDomain::Masked,
+		BlendMode::Opaque);
+	setupBaseMaterial(
+		m_transparentPbrMaterial,
+		MaterialDomain::Transparent,
+		BlendMode::Alpha);
+
+	auto setupMaterial =
+		[this](
+			unsigned int materialIndex,
+			Material* baseMaterial,
+			unsigned int albedo,
+			unsigned int normal,
+			unsigned int metallic,
+			unsigned int roughness,
+			unsigned int ao,
+			unsigned int emissive,
+			const XMFLOAT4& baseColor,
+			float metallicValue,
+			float roughnessValue,
+			float emissiveStrength,
+			float alphaCutoff) {
+			MaterialInstance& instance =
+				m_carMaterials[materialIndex];
+
+			instance.setMaterial(baseMaterial);
+			instance.setAlbedo(&m_carTextures[albedo]);
+			instance.setNormal(&m_carTextures[normal]);
+			instance.setMetallic(&m_carTextures[metallic]);
+			instance.setRoughness(&m_carTextures[roughness]);
+			instance.setAO(&m_carTextures[ao]);
+			instance.setEmissive(&m_carTextures[emissive]);
+
+			instance.getParams().baseColor = baseColor;
+			instance.getParams().metallic = metallicValue;
+			instance.getParams().roughness = roughnessValue;
+			instance.getParams().ao = 1.0f;
+			instance.getParams().normalScale = 1.0f;
+			instance.getParams().emissiveStrength =
+				emissiveStrength;
+			instance.getParams().alphaCutoff = alphaCutoff;
+		};
+
+	setupMaterial(CarMatPaint, &m_pbrMaterial,
+		CarTexWhite, CarTexFlatNormal, CarTexMetallicBlack,
+		CarTexRoughnessGloss, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(0.86f, 0.015f, 0.01f, 1.0f),
+		0.05f, 0.16f, 0.0f, 0.5f);
+
+	setupMaterial(CarMatPaintDark, &m_pbrMaterial,
+		CarTexWhite, CarTexFlatNormal, CarTexMetallicBlack,
+		CarTexRoughnessMedium, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(0.10f, 0.008f, 0.008f, 1.0f),
+		0.03f, 0.28f, 0.0f, 0.5f);
+
+	setupMaterial(CarMatChrome, &m_pbrMaterial,
+		CarTexWhite, CarTexFlatNormal, CarTexMetallicWhite,
+		CarTexRoughnessGloss, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(0.92f, 0.94f, 0.96f, 1.0f),
+		1.0f, 0.08f, 0.0f, 0.5f);
+
+	setupMaterial(CarMatBlack, &m_pbrMaterial,
+		CarTexBlack, CarTexFlatNormal, CarTexMetallicBlack,
+		CarTexRoughnessMedium, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+		0.0f, 0.48f, 0.0f, 0.5f);
+
+	setupMaterial(CarMatMatte, &m_pbrMaterial,
+		CarTexDarkGray, CarTexFlatNormal, CarTexMetallicBlack,
+		CarTexRoughnessMatte, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+		0.0f, 0.72f, 0.0f, 0.5f);
+
+	setupMaterial(CarMatRubber, &m_pbrMaterial,
+		CarTexDarkGray, CarTexFlatNormal, CarTexMetallicBlack,
+		CarTexRoughnessRubber, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(0.65f, 0.65f, 0.65f, 1.0f),
+		0.0f, 0.92f, 0.0f, 0.5f);
+
+	setupMaterial(CarMatGlass, &m_transparentPbrMaterial,
+		CarTexGlass, CarTexFlatNormal, CarTexMetallicBlack,
+		CarTexRoughnessGloss, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(0.56f, 0.70f, 0.80f, 0.30f),
+		0.0f, 0.06f, 0.0f, 0.0f);
+
+	setupMaterial(CarMatLights, &m_transparentPbrMaterial,
+		CarTexLights, CarTexFlatNormal, CarTexMetallicBlack,
+		CarTexRoughnessMedium, CarTexAOWide, CarTexLights,
+		XMFLOAT4(1.0f, 1.0f, 1.0f, 0.88f),
+		0.0f, 0.18f, 0.25f, 0.0f);
+
+	setupMaterial(CarMatInterior, &m_pbrMaterial,
+		CarTexInterior, CarTexStitchesNormal, CarTexMetallicBlack,
+		CarTexRoughnessMatte, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(0.80f, 0.80f, 0.80f, 1.0f),
+		0.0f, 0.62f, 0.0f, 0.5f);
+
+	setupMaterial(CarMatWheel, &m_pbrMaterial,
+		CarTexWheel, CarTexFlatNormal, CarTexMetallicWhite,
+		CarTexRoughnessMedium, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+		0.75f, 0.30f, 0.0f, 0.5f);
+
+	setupMaterial(CarMatTire, &m_pbrMaterial,
+		CarTexTireSidewall, CarTexFlatNormal, CarTexMetallicBlack,
+		CarTexRoughnessRubber, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(0.50f, 0.50f, 0.50f, 1.0f),
+		0.0f, 0.95f, 0.0f, 0.5f);
+
+	setupMaterial(CarMatTireTread, &m_pbrMaterial,
+		CarTexTireTread, CarTexFlatNormal, CarTexMetallicBlack,
+		CarTexRoughnessRubber, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(0.42f, 0.42f, 0.42f, 1.0f),
+		0.0f, 0.98f, 0.0f, 0.5f);
+
+	setupMaterial(CarMatGrille1, &m_maskedPbrMaterial,
+		CarTexGrille1, CarTexFlatNormal, CarTexMetallicWhite,
+		CarTexRoughnessMedium, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(0.35f, 0.35f, 0.38f, 1.0f),
+		0.70f, 0.38f, 0.0f, 0.40f);
+
+	setupMaterial(CarMatGrille2, &m_maskedPbrMaterial,
+		CarTexGrille2, CarTexFlatNormal, CarTexMetallicWhite,
+		CarTexRoughnessMedium, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(0.28f, 0.28f, 0.30f, 1.0f),
+		0.65f, 0.40f, 0.0f, 0.40f);
+
+	setupMaterial(CarMatDetail, &m_pbrMaterial,
+		CarTexDetail, CarTexFlatNormal, CarTexMetallicBlack,
+		CarTexRoughnessMedium, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+		0.10f, 0.40f, 0.0f, 0.5f);
+
+	setupMaterial(CarMatUndercarriage, &m_pbrMaterial,
+		CarTexUndercarriage, CarTexFlatNormal, CarTexMetallicBlack,
+		CarTexRoughnessMatte, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(0.55f, 0.55f, 0.55f, 1.0f),
+		0.10f, 0.78f, 0.0f, 0.5f);
+
+	setupMaterial(CarMatBrake, &m_pbrMaterial,
+		CarTexGray, CarTexFlatNormal, CarTexMetallicWhite,
+		CarTexRoughnessMedium, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(0.70f, 0.72f, 0.75f, 1.0f),
+		0.85f, 0.42f, 0.0f, 0.5f);
+
+	setupMaterial(CarMatMirror, &m_pbrMaterial,
+		CarTexMirror, CarTexFlatNormal, CarTexMetallicWhite,
+		CarTexRoughnessGloss, CarTexAOWide, CarTexEmissiveBlack,
+		XMFLOAT4(0.95f, 0.98f, 1.0f, 1.0f),
+		1.0f, 0.03f, 0.0f, 0.5f);
+
+	setupMaterial(CarMatEmissive, &m_pbrMaterial,
+		CarTexInterior, CarTexFlatNormal, CarTexMetallicBlack,
+		CarTexRoughnessMedium, CarTexAOWide, CarTexInterior,
+		XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+		0.0f, 0.45f, 0.85f, 0.5f);
+
+	m_car01 = EU::MakeShared<Actor>(m_device);
+	if (m_car01.isNull()) {
+		ERROR("Main", "InitDevice", "No se pudo crear actor del auto.");
+		return E_FAIL;
+	}
+
+	m_car01->setName("Alfa Romeo 33 Stradale");
+	m_car01->getComponent<Transform>()->setTransform(
+		EU::Vector3(0.0f, 0.10f, 5.6f),
+		EU::Vector3(0.0f, 2.35f, 0.0f),
+		EU::Vector3(1.0f, 1.0f, 1.0f));
+
+	{
+		EU::TSharedPointer<MeshRendererComponent> meshRenderer =
+			m_car01->getComponent<MeshRendererComponent>();
+
+		if (!meshRenderer) {
+			meshRenderer =
+				EU::MakeShared<MeshRendererComponent>();
+			m_car01->addComponent(meshRenderer);
+		}
+
+		std::vector<MaterialInstance*> materialPointers;
+		materialPointers.reserve(kCarMaterialCount);
+		for (size_t materialIndex = 0;
+			materialIndex < kCarMaterialCount;
+			++materialIndex) {
+			materialPointers.push_back(
+				&m_carMaterials[materialIndex]);
+		}
+
+		meshRenderer->setMesh(&m_carRenderMesh);
+		meshRenderer->setMaterialInstances(materialPointers);
+		meshRenderer->setVisible(true);
+		meshRenderer->setCastShadow(true);
+	}
+
+	m_actors.push_back(m_car01);
+	m_sceneGraph.addEntity(m_car01.get());
+	m_actorSourcePaths[m_car01.get()] =
+		"Assets/Models/AlfaRomeo33Stradale.fbx";
+
+	// Vista inicial de tres cuartos, parecida a la referencia.
+	{
+		const EU::Vector3 cameraEye(
+			4.60f, 2.15f, -1.80f);
+		const EU::Vector3 cameraTarget(
+			0.0f, 0.55f, 5.60f);
+
+		m_camera.lookAt(
+			cameraEye,
+			cameraTarget);
+		m_camera.setPosition(
+			cameraEye);
+	}
+
+	m_car02 = EU::TSharedPointer<Actor>();
 
 	// ---- Luz direccional ----
 	m_directionalLightActor = EU::MakeShared<Actor>(m_device);
@@ -879,20 +1265,8 @@ BaseApp::destroy() {
 	m_sceneGraph.destroy();
 	m_renderPipeline.destroy();
 	m_editorViewportPass.destroy();
-	m_ranaRenderMesh.destroy();
-	m_ranaBodyAlbedo.destroy();
-	m_ranaBodyMetallic.destroy();
-	m_ranaBodyNormal.destroy();
-	m_ranaBodyRoughness.destroy();
-	m_ranaBodyAO.destroy();
-	m_ranaHeadAlbedo.destroy();
-	m_ranaHeadNormal.destroy();
-	m_ranaHeadRoughness.destroy();
-	m_ranaHeadAO.destroy();
-	m_ranaGlassAlbedo.destroy();
-	m_ranaGlassNormal.destroy();
-	m_ranaGlassRoughness.destroy();
-	m_ranaGlassAO.destroy();
+	m_carRenderMesh.destroy();
+	for (Texture& texture : m_carTextures) texture.destroy();
 	m_defaultRasterizer.destroy();
 	m_defaultDepthStencil.destroy();
 	m_defaultSampler.destroy();
@@ -906,8 +1280,8 @@ BaseApp::destroy() {
 		m_gui.destroy();
 		m_guiInitialized = false;
 	}
-	delete m_ranaModel;
-	m_ranaModel = nullptr;
+	delete m_carModel;
+	m_carModel = nullptr;
 	for (auto& lm : m_loadedModels) {
 		if (lm) {
 			lm->mesh.destroy();
@@ -1420,20 +1794,46 @@ BaseApp::removeActorFromScene(const EU::TSharedPointer<Actor>& actor) {
 }
 
 EU::TSharedPointer<Actor>
-BaseApp::spawnRana(const std::string& name,
-	const EU::Vector3& pos, const EU::Vector3& rot, const EU::Vector3& scale) {
-	EU::TSharedPointer<Actor> a = EU::MakeShared<Actor>(m_device);
-	if (a.isNull()) return a;
-	a->setName(name);
-	EU::TSharedPointer<Transform> t = a->getComponent<Transform>();
-	if (t) t->setTransform(pos, rot, scale);
-	EU::TSharedPointer<MeshRendererComponent> mr = a->getComponent<MeshRendererComponent>();
-	if (!mr) { mr = EU::MakeShared<MeshRendererComponent>(); a->addComponent(mr); }
-	mr->setMesh(&m_ranaRenderMesh);
-	mr->setMaterialInstances({ &m_ranaBodyMaterial, &m_ranaHeadMaterial, &m_ranaGlassMaterial });
-	mr->setVisible(true);
-	mr->setCastShadow(true);
-	return a;
+BaseApp::spawnCar(
+	const std::string& name,
+	const EU::Vector3& pos,
+	const EU::Vector3& rot,
+	const EU::Vector3& scale) {
+
+	EU::TSharedPointer<Actor> actor =
+		EU::MakeShared<Actor>(m_device);
+	if (actor.isNull())
+		return actor;
+
+	actor->setName(name);
+
+	EU::TSharedPointer<Transform> transform =
+		actor->getComponent<Transform>();
+	if (transform)
+		transform->setTransform(pos, rot, scale);
+
+	EU::TSharedPointer<MeshRendererComponent> meshRenderer =
+		actor->getComponent<MeshRendererComponent>();
+	if (!meshRenderer) {
+		meshRenderer =
+			EU::MakeShared<MeshRendererComponent>();
+		actor->addComponent(meshRenderer);
+	}
+
+	std::vector<MaterialInstance*> materialPointers;
+	materialPointers.reserve(kCarMaterialCount);
+	for (size_t materialIndex = 0;
+		materialIndex < kCarMaterialCount;
+		++materialIndex) {
+		materialPointers.push_back(
+			&m_carMaterials[materialIndex]);
+	}
+
+	meshRenderer->setMesh(&m_carRenderMesh);
+	meshRenderer->setMaterialInstances(materialPointers);
+	meshRenderer->setVisible(true);
+	meshRenderer->setCastShadow(true);
+	return actor;
 }
 
 
@@ -1448,10 +1848,10 @@ BaseApp::spawnActorFromSource(
 	EU::TSharedPointer<Actor> actor;
 
 	if (modelPath.empty() ||
-		toLowerCopy(modelPath) == toLowerCopy("Assets/Models/Rana.fbx")) {
-		actor = spawnRana(name, position, rotation, scale);
+		toLowerCopy(modelPath) == toLowerCopy("Assets/Models/AlfaRomeo33Stradale.fbx")) {
+		actor = spawnCar(name, position, rotation, scale);
 		if (!actor.isNull())
-			m_actorSourcePaths[actor.get()] = "Assets/Models/Rana.fbx";
+			m_actorSourcePaths[actor.get()] = "Assets/Models/AlfaRomeo33Stradale.fbx";
 	}
 	else {
 		actor = loadModelActor(modelPath);
@@ -1484,8 +1884,8 @@ BaseApp::getActorCpuMeshes(
 
 	Mesh* mesh = meshRenderer->getMesh();
 
-	if (mesh == &m_ranaRenderMesh)
-		return &m_ranaCpuMeshes;
+	if (mesh == &m_carRenderMesh)
+		return &m_carCpuMeshes;
 
 	for (const auto& loadedModel : m_loadedModels) {
 		if (loadedModel && &loadedModel->mesh == mesh)
@@ -1817,7 +2217,7 @@ BaseApp::loadModelTextures(LoadedModel& lm, const std::string& folder) {
 		}
 	}
 	if (!lm.albedo.m_textureFromImg) {
-		lm.materialInstance.setAlbedo(&m_ranaBodyAlbedo); // fallback para no quedar negro
+		lm.materialInstance.setAlbedo(&m_carTextures[CarTexWhite]); // fallback para no quedar negro
 		MESSAGE("BaseApp", "loadModelTextures", "Sin albedo en la carpeta; usando textura fallback");
 	}
 }
@@ -1910,7 +2310,7 @@ BaseApp::getActorAABB(const EU::TSharedPointer<Actor>& actor, EU::Vector3& outMi
 	Mesh* mesh = mr->getMesh();
 	if (!mesh) return false;
 
-	if (mesh == &m_ranaRenderMesh) { outMin = m_ranaModelLocalMin; outMax = m_ranaModelLocalMax; return true; }
+	if (mesh == &m_carRenderMesh) { outMin = m_carModelLocalMin; outMax = m_carModelLocalMax; return true; }
 	for (auto& lm : m_loadedModels) {
 		if (lm && &lm->mesh == mesh) { outMin = lm->localMin; outMax = lm->localMax; return true; }
 	}

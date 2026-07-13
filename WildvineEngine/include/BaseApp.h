@@ -29,6 +29,7 @@
 #include "Rendering/RenderScene.h"
 #include "CommandManager.h"
 #include <string>
+#include <array>
 #include <unordered_map>
 extern IMGUI_IMPL_API
 LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -138,8 +139,8 @@ private:
 	unsigned int m_lastDrawCalls = 0;
 
 	// Picking
-	EU::Vector3 m_ranaModelLocalMin;
-	EU::Vector3 m_ranaModelLocalMax;
+	EU::Vector3 m_carModelLocalMin;
+	EU::Vector3 m_carModelLocalMax;
 	void pickActorFromMouse();
 
 
@@ -153,7 +154,7 @@ private:
 	ActorClipboard m_clipboard;
 	bool m_hasClipboard = false;
 
-	EU::TSharedPointer<Actor> spawnRana(const std::string& name,
+	EU::TSharedPointer<Actor> spawnCar(const std::string& name,
 		const EU::Vector3& pos, const EU::Vector3& rot, const EU::Vector3& scale);
 
 	EU::TSharedPointer<Actor> spawnActorFromSource(
@@ -174,7 +175,7 @@ private:
 	void loadPrefab();
 
 	std::vector<std::unique_ptr<LoadedModel>> m_loadedModels;
-	std::vector<MeshComponent> m_ranaCpuMeshes;
+	std::vector<MeshComponent> m_carCpuMeshes;
 	std::unordered_map<Actor*, std::string> m_actorSourcePaths;
 
 	std::vector<Texture> m_thumbTextures;
@@ -191,51 +192,39 @@ private:
 
 
 
-	// Textures
-	// Texturas de la rana: cuerpo
-	Texture m_ranaBodyAlbedo;
-	Texture m_ranaBodyMetallic;
-	Texture m_ranaBodyRoughness;
-	Texture m_ranaBodyAO;
-	Texture m_ranaBodyNormal;
 
-	// Texturas de la rana: cabeza
-	Texture m_ranaHeadAlbedo;
-	Texture m_ranaHeadRoughness;
-	Texture m_ranaHeadAO;
-	Texture m_ranaHeadNormal;
+	// Recursos del Alfa Romeo.
+	static const size_t kCarTextureCount = 25;
+	static const size_t kCarMaterialCount = 19;
 
-	// Texturas de la rana: cristal
-	Texture m_ranaGlassAlbedo;
-	Texture m_ranaGlassRoughness;
-	Texture m_ranaGlassAO;
-	Texture m_ranaGlassNormal;
+	std::array<Texture, kCarTextureCount> m_carTextures;
+	std::array<MaterialInstance, kCarMaterialCount> m_carMaterials;
 
-	Camera															m_camera;
+	Camera m_camera;
 
-	SceneGraph												m_sceneGraph;
+	SceneGraph m_sceneGraph;
 	std::vector<EU::TSharedPointer<Actor>> m_actors;
-	EU::TSharedPointer<Actor> m_rana01;
-	EU::TSharedPointer<Actor> m_rana02;
+	EU::TSharedPointer<Actor> m_car01;
+	EU::TSharedPointer<Actor> m_car02;
 	EU::TSharedPointer<Actor> m_directionalLightActor;
 
-	Model3D* m_ranaModel = nullptr;
+	Model3D* m_carModel = nullptr;
 
-	GUI																m_gui;
+	GUI m_gui;
 	bool m_guiInitialized = false;
 	EU::Vector3 m_cameraPos;
 
 	Skybox m_skybox;
-	Texture															m_skyboxTex;
+	Texture m_skyboxTex;
 	RasterizerState m_defaultRasterizer;
 	DepthStencilState m_defaultDepthStencil;
 	SamplerState m_defaultSampler;
-	Mesh m_ranaRenderMesh;
+
+	Mesh m_carRenderMesh;
+
 	Material m_pbrMaterial;
+	Material m_maskedPbrMaterial;
 	Material m_transparentPbrMaterial;
-	MaterialInstance m_ranaBodyMaterial;
-	MaterialInstance m_ranaHeadMaterial;
-	MaterialInstance m_ranaGlassMaterial;
 
 	EditorViewportPass m_editorViewportPass;
 	RenderPipeline m_renderPipeline;
