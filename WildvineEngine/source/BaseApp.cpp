@@ -1170,9 +1170,34 @@ BaseApp::pickActorFromMouse() {
 	const float ndcX = (2.0f * mouseX / viewportWidth) - 1.0f;
 	const float ndcY = 1.0f - (2.0f * mouseY / viewportHeight);
 
-	XMMATRIX inverseViewProjection = XMMatrixInverse(
-		nullptr,
-		m_camera.getView() * m_camera.getProj());
+	const XMMATRIX viewProjection =
+		m_camera.getView() * m_camera.getProj();
+
+	// XNAMath requiere una direccion valida para almacenar
+	// el determinante. No se debe enviar nullptr.
+	const XMVECTOR determinantCheck =
+		XMMatrixDeterminant(viewProjection);
+
+	const float determinantValue =
+		XMVectorGetX(determinantCheck);
+
+	if (!_finite(determinantValue) ||
+		fabsf(determinantValue) < 0.000001f) {
+
+		ERROR(
+			"BaseApp",
+			"pickActorFromMouse",
+			"La matriz ViewProjection no se puede invertir.");
+
+		return;
+	}
+
+	XMVECTOR determinant;
+
+	const XMMATRIX inverseViewProjection =
+		XMMatrixInverse(
+			&determinant,
+			viewProjection);
 
 	XMVECTOR nearPoint = XMVector3TransformCoord(
 		XMVectorSet(ndcX, ndcY, 0.0f, 1.0f),
