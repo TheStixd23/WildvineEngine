@@ -1,4 +1,4 @@
-#include "GUI/GUI.h"
+﻿#include "GUI/GUI.h"
 #include "Viewport.h"
 #include "Window.h"
 #include "Device.h"
@@ -718,25 +718,96 @@ void GUI::drawStudioTopRibbon() {
 }
 
 void GUI::drawViewportPanel(ID3D11ShaderResourceView* viewportSRV) {
-	ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse;
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+	ImGuiWindowFlags flags =
+		ImGuiWindowFlags_NoScrollbar |
+		ImGuiWindowFlags_NoScrollWithMouse |
+		ImGuiWindowFlags_NoCollapse;
+
+	ImGui::PushStyleVar(
+		ImGuiStyleVar_WindowPadding,
+		ImVec2(0.0f, 0.0f));
+
 	if (ImGui::Begin("Vista 3D", nullptr, flags)) {
 		m_viewportDrawList = ImGui::GetWindowDrawList();
+
 		ImVec2 panelMin = ImGui::GetCursorScreenPos();
 		ImVec2 panelSize = ImGui::GetContentRegionAvail();
+
 		if (panelSize.x < 1.0f) panelSize.x = 1.0f;
 		if (panelSize.y < 1.0f) panelSize.y = 1.0f;
-		m_viewportPos = panelMin; m_viewportSize = panelSize;
-		if (viewportSRV) ImGui::Image((ImTextureID)viewportSRV, panelSize);
-		else {
-			ImVec2 panelMax(panelMin.x + panelSize.x, panelMin.y + panelSize.y);
-			m_viewportDrawList->AddRectFilled(panelMin, panelMax, IM_COL32(12, 17, 19, 255));
-			m_viewportDrawList->AddText(ImVec2(panelMin.x + 12.0f, panelMin.y + 12.0f), IM_COL32(205, 230, 220, 255), "Vista 3D sin render");
+
+		m_viewportPos = panelMin;
+		m_viewportSize = panelSize;
+
+		if (viewportSRV) {
+			ImGui::Image((ImTextureID)viewportSRV, panelSize);
 		}
+		else {
+			ImGui::InvisibleButton("##ViewportDropTarget", panelSize);
+
+			ImVec2 panelMax(
+				panelMin.x + panelSize.x,
+				panelMin.y + panelSize.y);
+
+			m_viewportDrawList->AddRectFilled(
+				panelMin,
+				panelMax,
+				IM_COL32(12, 17, 19, 255));
+
+			m_viewportDrawList->AddText(
+				ImVec2(panelMin.x + 12.0f, panelMin.y + 12.0f),
+				IM_COL32(205, 230, 220, 255),
+				"Vista 3D sin render");
+		}
+
+		// Recibe modelos arrastrados desde Recursos.
+		if (ImGui::BeginDragDropTarget()) {
+			if (const ImGuiPayload* payload =
+				ImGui::AcceptDragDropPayload("WILDVINE_MODEL_ASSET")) {
+
+				const char* modelPath =
+					static_cast<const char*>(payload->Data);
+
+				if (modelPath && payload->DataSize > 1) {
+					m_assetSpawnPath = modelPath;
+					m_assetSpawnRequested = true;
+				}
+			}
+			ImGui::EndDragDropTarget();
+		}
+
 		m_viewportHovered = ImGui::IsItemHovered();
 		m_viewportActive = ImGui::IsItemActive();
-		m_viewportFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+		m_viewportFocused = ImGui::IsWindowFocused(
+			ImGuiFocusedFlags_RootAndChildWindows);
+
+		// Ayuda visual al arrastrar un modelo.
+		if (const ImGuiPayload* payload =
+			ImGui::GetDragDropPayload()) {
+
+			if (payload->IsDataType("WILDVINE_MODEL_ASSET") &&
+				m_viewportHovered) {
+
+				ImVec2 panelMax(
+					panelMin.x + panelSize.x,
+					panelMin.y + panelSize.y);
+
+				m_viewportDrawList->AddRect(
+					panelMin,
+					panelMax,
+					IM_COL32(40, 235, 175, 255),
+					0.0f,
+					0,
+					3.0f);
+
+				m_viewportDrawList->AddText(
+					ImVec2(panelMin.x + 18.0f, panelMin.y + 18.0f),
+					IM_COL32(120, 255, 215, 255),
+					"Soltar para instanciar modelo");
+			}
+		}
 	}
+
 	ImGui::End();
 	ImGui::PopStyleVar();
 }
@@ -1061,12 +1132,35 @@ void GUI::drawContentBrowser(const std::vector<AssetThumb>& textureThumbs) {
 			for (const std::string& m : models) {
 				ImGui::PushID(m.c_str());
 				ImGui::BeginGroup();
-				ImGui::Button("FBX/OBJ", ImVec2(cell, cell));
-				if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s(doble click para instanciar)", m.c_str());
-					if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-						m_assetSpawnPath = "Assets/Models/" + m;
-						m_assetSpawnRequested = true;
-					}
+				ImGui::Button("MODELO", ImVec2(cell, cell));
+
+				const std::string assetPath =
+					"Assets/Models/" + m;
+
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip(
+						"%s\nDoble clic o arrastra a Vista 3D",
+						m.c_str());
+				}
+
+				if (ImGui::IsItemHovered() &&
+					ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+					m_assetSpawnPath = assetPath;
+					m_assetSpawnRequested = true;
+				}
+
+				if (ImGui::BeginDragDropSource(
+					ImGuiDragDropFlags_SourceAllowNullID)) {
+
+					ImGui::SetDragDropPayload(
+						"WILDVINE_MODEL_ASSET",
+						assetPath.c_str(),
+						assetPath.size() + 1);
+
+					ImGui::TextUnformatted("Instanciar modelo:");
+					ImGui::TextUnformatted(m.c_str());
+					ImGui::EndDragDropSource();
+				}
 				ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + cell);
 				ImGui::TextWrapped("%s", m.c_str());
 				ImGui::PopTextWrapPos();

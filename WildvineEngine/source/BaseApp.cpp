@@ -1,6 +1,7 @@
 ﻿#include "BaseApp.h"
 #include "ResourceManager.h"
 #include <fstream>
+#include <iomanip>
 
 namespace {
 
@@ -21,6 +22,62 @@ namespace {
 		} while (FindNextFileA(h, &fd));
 		FindClose(h); return out;
 	}
+
+	static bool rayTriangleIntersection(
+		const XMFLOAT3& rayOrigin,
+		const XMFLOAT3& rayDirection,
+		const XMFLOAT3& v0,
+		const XMFLOAT3& v1,
+		const XMFLOAT3& v2,
+		float& outDistance) {
+
+		const float epsilon = 1e-7f;
+
+		const float edge1x = v1.x - v0.x;
+		const float edge1y = v1.y - v0.y;
+		const float edge1z = v1.z - v0.z;
+
+		const float edge2x = v2.x - v0.x;
+		const float edge2y = v2.y - v0.y;
+		const float edge2z = v2.z - v0.z;
+
+		const float px = rayDirection.y * edge2z - rayDirection.z * edge2y;
+		const float py = rayDirection.z * edge2x - rayDirection.x * edge2z;
+		const float pz = rayDirection.x * edge2y - rayDirection.y * edge2x;
+
+		const float determinant = edge1x * px + edge1y * py + edge1z * pz;
+		if (fabsf(determinant) < epsilon) return false;
+
+		const float inverseDeterminant = 1.0f / determinant;
+
+		const float tx = rayOrigin.x - v0.x;
+		const float ty = rayOrigin.y - v0.y;
+		const float tz = rayOrigin.z - v0.z;
+
+		const float u = (tx * px + ty * py + tz * pz) * inverseDeterminant;
+		if (u < 0.0f || u > 1.0f) return false;
+
+		const float qx = ty * edge1z - tz * edge1y;
+		const float qy = tz * edge1x - tx * edge1z;
+		const float qz = tx * edge1y - ty * edge1x;
+
+		const float v =
+			(rayDirection.x * qx +
+			 rayDirection.y * qy +
+			 rayDirection.z * qz) * inverseDeterminant;
+
+		if (v < 0.0f || (u + v) > 1.0f) return false;
+
+		const float distance =
+			(edge2x * qx + edge2y * qy + edge2z * qz) *
+			inverseDeterminant;
+
+		if (distance <= epsilon) return false;
+
+		outDistance = distance;
+		return true;
+	}
+
 	static std::vector<std::string> listSubfolders(const std::string& dir) {
 		std::vector<std::string> out; std::string pat = dir + "\\*"; WIN32_FIND_DATAA fd;
 		HANDLE h = FindFirstFileA(pat.c_str(), &fd); if (h == INVALID_HANDLE_VALUE) return out;
@@ -338,6 +395,7 @@ BaseApp::init() {
 	}
 	m_actors.push_back(m_rana01);
 	m_sceneGraph.addEntity(m_rana01.get());
+	m_actorSourcePaths[m_rana01.get()] = "Assets/Models/Rana.fbx";
 
 	// ---- Actor 2 desactivado temporalmente ----
 	// Se deja una sola rana visible para evitar que dos instancias se encimen.
@@ -513,16 +571,12 @@ BaseApp::update(float deltaTime) {
 		dPrev = dNow; cPrev = cNow; vPrev = vNow; delPrev = delNow;
 	}
 
-	// --- Navegacion de camara estilo Unreal ---
-	// Controles:
-	//   Clic derecho + mover mouse: mirar alrededor.
-	//   W/S: avanzar y retroceder.
-	//   A/D: desplazarse a izquierda y derecha.
-	//   Q/E: bajar y subir.
-	//   Shift: aumentar la velocidad.
-	//   Rueda: acercar o alejar la camara.
-	//   Clic central + mover mouse: desplazar la vista.
-	//   Flechas: girar la camara sin usar el mouse.
+	// --- Navegacion de camara estilo Unreal / DCC ---
+	// Clic derecho + mouse: mirar.
+	// WASD + Q/E: desplazamiento libre.
+	// Alt + clic izquierdo: orbitar alrededor del objeto seleccionado.
+	// Clic central: pan.
+	// Rueda: zoom; clic derecho + rueda: velocidad.
 	if (!m_gui.m_isUsingGizmo) {
 		ImGuiIO& io = ImGui::GetIO();
 
@@ -535,103 +589,186 @@ BaseApp::update(float deltaTime) {
 				ImGui::IsMouseDown(ImGuiMouseButton_Right);
 			const bool middleMouseDown =
 				ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+			const bool leftMouseDown =
+				ImGui::IsMouseDown(ImGuiMouseButton_Left);
 
-			// Mantiene una velocidad base que puede ajustarse con la rueda
-			// mientras se sostiene el clic derecho.
 			static float cameraMovementSpeed = 4.0f;
 
 			if (rightMouseDown && io.MouseWheel != 0.0f) {
 				cameraMovementSpeed += io.MouseWheel * 0.75f;
-
-				if (cameraMovementSpeed < 1.0f) {
-					cameraMovementSpeed = 1.0f;
-				}
-				else if (cameraMovementSpeed > 30.0f) {
-					cameraMovementSpeed = 30.0f;
-				}
+				if (cameraMovementSpeed < 1.0f) cameraMovementSpeed = 1.0f;
+				if (cameraMovementSpeed > 30.0f) cameraMovementSpeed = 30.0f;
 			}
 			else if (!rightMouseDown && io.MouseWheel != 0.0f) {
-				// Sin clic derecho, la rueda acerca o aleja la camara.
 				m_camera.walk(io.MouseWheel * 0.70f);
 			}
 
-			// Clic derecho + movimiento del mouse:
-			// comportamiento de camara libre parecido a Unreal.
-			if (rightMouseDown) {
+			// Orbita DCC: Alt + clic izquierdo.
+			if (altPressed && leftMouseDown) {
+				if (!m_orbitActive) {
+					m_orbitActive = true;
+
+					bool pivotFound = false;
+					if (m_gui.selectedActorIndex >= 0 &&
+						m_gui.selectedActorIndex < (int)m_actors.size()) {
+
+						EU::TSharedPointer<Actor> selected =
+							m_actors[m_gui.selectedActorIndex];
+
+						EU::Vector3 localMin, localMax;
+						EU::TSharedPointer<Transform> transform =
+							selected.isNull()
+							? EU::TSharedPointer<Transform>()
+							: selected->getComponent<Transform>();
+
+						if (transform && getActorAABB(selected, localMin, localMax)) {
+							XMVECTOR localCenter = XMVectorSet(
+								(localMin.x + localMax.x) * 0.5f,
+								(localMin.y + localMax.y) * 0.5f,
+								(localMin.z + localMax.z) * 0.5f,
+								1.0f);
+
+							XMVECTOR worldCenter =
+								XMVector3TransformCoord(localCenter, transform->worldMatrix);
+
+							XMFLOAT3 center;
+							XMStoreFloat3(&center, worldCenter);
+							m_orbitPivot = EU::Vector3(center.x, center.y, center.z);
+							pivotFound = true;
+						}
+					}
+
+					if (!pivotFound) {
+						EU::Vector3 position = m_camera.getPosition();
+						EU::Vector3 forward = m_camera.GetForward();
+						m_orbitPivot = EU::Vector3(
+							position.x + forward.x * 5.0f,
+							position.y + forward.y * 5.0f,
+							position.z + forward.z * 5.0f);
+					}
+
+					EU::Vector3 position = m_camera.getPosition();
+					const float dx = position.x - m_orbitPivot.x;
+					const float dy = position.y - m_orbitPivot.y;
+					const float dz = position.z - m_orbitPivot.z;
+					m_orbitDistance = sqrtf(dx * dx + dy * dy + dz * dz);
+					if (m_orbitDistance < 0.25f) m_orbitDistance = 0.25f;
+				}
+
 				ImGui::SetMouseCursor(ImGuiMouseCursor_None);
 
+				EU::Vector3 position = m_camera.getPosition();
+				XMVECTOR offset = XMVectorSet(
+					position.x - m_orbitPivot.x,
+					position.y - m_orbitPivot.y,
+					position.z - m_orbitPivot.z,
+					0.0f);
+
+				const float orbitSensitivity = 0.0040f;
+
+				XMMATRIX yawRotation =
+					XMMatrixRotationY(-io.MouseDelta.x * orbitSensitivity);
+				offset = XMVector3TransformNormal(offset, yawRotation);
+
+				EU::Vector3 cameraRight = m_camera.GetRight();
+				XMVECTOR rightAxis = XMVector3Normalize(XMVectorSet(
+					cameraRight.x, cameraRight.y, cameraRight.z, 0.0f));
+
+				XMMATRIX pitchRotation = XMMatrixRotationAxis(
+					rightAxis,
+					-io.MouseDelta.y * orbitSensitivity);
+				offset = XMVector3TransformNormal(offset, pitchRotation);
+
+				offset = XMVector3Normalize(offset) * m_orbitDistance;
+
+				XMVECTOR pivot = XMVectorSet(
+					m_orbitPivot.x,
+					m_orbitPivot.y,
+					m_orbitPivot.z,
+					1.0f);
+
+				XMVECTOR newPositionVector = pivot + offset;
+				XMFLOAT3 newPosition;
+				XMStoreFloat3(&newPosition, newPositionVector);
+
+				EU::Vector3 eye(newPosition.x, newPosition.y, newPosition.z);
+				m_camera.lookAt(eye, m_orbitPivot);
+				m_camera.setPosition(eye);
+			}
+			else {
+				m_orbitActive = false;
+			}
+
+			// Cámara libre tipo Unreal.
+			if (rightMouseDown && !altPressed) {
+				ImGui::SetMouseCursor(ImGuiMouseCursor_None);
 				const float mouseSensitivity = 0.0040f;
 				m_camera.yaw(io.MouseDelta.x * mouseSensitivity);
 				m_camera.pitch(io.MouseDelta.y * mouseSensitivity);
 			}
 
-			// Clic central + movimiento del mouse:
-			// desplaza la vista lateral y verticalmente.
+			// Pan con clic central.
 			if (middleMouseDown) {
 				const float panSensitivity = 0.020f;
+				const float horizontal = -io.MouseDelta.x * panSensitivity;
+				const float vertical = io.MouseDelta.y * panSensitivity;
 
-				m_camera.strafe(-io.MouseDelta.x * panSensitivity);
+				m_camera.strafe(horizontal);
 
 				EU::Vector3 cameraPosition = m_camera.getPosition();
-				cameraPosition.y += io.MouseDelta.y * panSensitivity;
+				cameraPosition.y += vertical;
 				m_camera.setPosition(cameraPosition);
+
+				// Mantener el pivote coherente después de desplazar la vista.
+				EU::Vector3 right = m_camera.GetRight();
+				m_orbitPivot.x += right.x * horizontal;
+				m_orbitPivot.y += right.y * horizontal + vertical;
+				m_orbitPivot.z += right.z * horizontal;
 			}
 
-			// Evita conflictos con Ctrl+D, Ctrl+C, Ctrl+V y otros atajos.
 			if (!ctrlPressed && !altPressed) {
 				float movementSpeed = cameraMovementSpeed;
-
-				if ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0) {
+				if ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0)
 					movementSpeed *= 2.5f;
-				}
 
 				const float movement = movementSpeed * deltaTime;
 
-				if ((GetAsyncKeyState('W') & 0x8000) != 0) {
+				if ((GetAsyncKeyState('W') & 0x8000) != 0)
 					m_camera.walk(movement);
-				}
-				if ((GetAsyncKeyState('S') & 0x8000) != 0) {
+				if ((GetAsyncKeyState('S') & 0x8000) != 0)
 					m_camera.walk(-movement);
-				}
-				if ((GetAsyncKeyState('A') & 0x8000) != 0) {
+				if ((GetAsyncKeyState('A') & 0x8000) != 0)
 					m_camera.strafe(-movement);
-				}
-				if ((GetAsyncKeyState('D') & 0x8000) != 0) {
+				if ((GetAsyncKeyState('D') & 0x8000) != 0)
 					m_camera.strafe(movement);
-				}
 
 				EU::Vector3 cameraPosition = m_camera.getPosition();
-				bool verticalPositionChanged = false;
+				bool verticalChanged = false;
 
 				if ((GetAsyncKeyState('Q') & 0x8000) != 0) {
 					cameraPosition.y -= movement;
-					verticalPositionChanged = true;
+					verticalChanged = true;
 				}
 				if ((GetAsyncKeyState('E') & 0x8000) != 0) {
 					cameraPosition.y += movement;
-					verticalPositionChanged = true;
+					verticalChanged = true;
 				}
-
-				if (verticalPositionChanged) {
+				if (verticalChanged)
 					m_camera.setPosition(cameraPosition);
-				}
 
-				// Las flechas se conservan como alternativa al mouse.
 				const float rotationSpeed = 1.5f * deltaTime;
-
-				if ((GetAsyncKeyState(VK_LEFT) & 0x8000) != 0) {
+				if ((GetAsyncKeyState(VK_LEFT) & 0x8000) != 0)
 					m_camera.yaw(-rotationSpeed);
-				}
-				if ((GetAsyncKeyState(VK_RIGHT) & 0x8000) != 0) {
+				if ((GetAsyncKeyState(VK_RIGHT) & 0x8000) != 0)
 					m_camera.yaw(rotationSpeed);
-				}
-				if ((GetAsyncKeyState(VK_UP) & 0x8000) != 0) {
+				if ((GetAsyncKeyState(VK_UP) & 0x8000) != 0)
 					m_camera.pitch(-rotationSpeed);
-				}
-				if ((GetAsyncKeyState(VK_DOWN) & 0x8000) != 0) {
+				if ((GetAsyncKeyState(VK_DOWN) & 0x8000) != 0)
 					m_camera.pitch(rotationSpeed);
-				}
 			}
+		}
+		else {
+			m_orbitActive = false;
 		}
 	}
 
@@ -652,6 +789,7 @@ BaseApp::update(float deltaTime) {
 
 	// --- Picking (click izquierdo) ---
 	if (m_gui.m_viewportHovered && !m_gui.m_isUsingGizmo &&
+		(GetAsyncKeyState(VK_MENU) & 0x8000) == 0 &&
 		ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver()) {
 		pickActorFromMouse();
 	}
@@ -912,12 +1050,63 @@ BaseApp::resetSceneToDefaults() {
 void
 BaseApp::focusCameraOnActor(const EU::TSharedPointer<Actor>& actor) {
 	if (actor.isNull()) return;
-	EU::TSharedPointer<Transform> t = actor->getComponent<Transform>();
-	if (!t) return;
-	EU::Vector3 target = t->getPosition();
-	EU::Vector3 fwd = m_camera.GetForward();
-	const float dist = 6.0f;
-	EU::Vector3 eye(target.x - fwd.x * dist, target.y - fwd.y * dist, target.z - fwd.z * dist);
+
+	EU::TSharedPointer<Transform> transform = actor->getComponent<Transform>();
+	if (!transform) return;
+
+	EU::Vector3 localMin, localMax;
+	EU::Vector3 target = transform->getPosition();
+	float radius = 1.0f;
+
+	if (getActorAABB(actor, localMin, localMax)) {
+		float worldMin[3] = { 1e9f, 1e9f, 1e9f };
+		float worldMax[3] = { -1e9f, -1e9f, -1e9f };
+
+		for (int corner = 0; corner < 8; ++corner) {
+			const float x = (corner & 1) ? localMax.x : localMin.x;
+			const float y = (corner & 2) ? localMax.y : localMin.y;
+			const float z = (corner & 4) ? localMax.z : localMin.z;
+
+			XMVECTOR worldCorner = XMVector3TransformCoord(
+				XMVectorSet(x, y, z, 1.0f),
+				transform->worldMatrix);
+
+			XMFLOAT3 value;
+			XMStoreFloat3(&value, worldCorner);
+
+			worldMin[0] = fminf(worldMin[0], value.x);
+			worldMin[1] = fminf(worldMin[1], value.y);
+			worldMin[2] = fminf(worldMin[2], value.z);
+
+			worldMax[0] = fmaxf(worldMax[0], value.x);
+			worldMax[1] = fmaxf(worldMax[1], value.y);
+			worldMax[2] = fmaxf(worldMax[2], value.z);
+		}
+
+		target = EU::Vector3(
+			(worldMin[0] + worldMax[0]) * 0.5f,
+			(worldMin[1] + worldMax[1]) * 0.5f,
+			(worldMin[2] + worldMax[2]) * 0.5f);
+
+		const float dx = worldMax[0] - worldMin[0];
+		const float dy = worldMax[1] - worldMin[1];
+		const float dz = worldMax[2] - worldMin[2];
+		radius = 0.5f * sqrtf(dx * dx + dy * dy + dz * dz);
+		if (radius < 0.5f) radius = 0.5f;
+	}
+
+	const float distance =
+		(radius / tanf(m_camera.getFovY() * 0.5f)) * 1.25f;
+
+	EU::Vector3 forward = m_camera.GetForward();
+	EU::Vector3 eye(
+		target.x - forward.x * distance,
+		target.y - forward.y * distance,
+		target.z - forward.z * distance);
+
+	m_orbitPivot = target;
+	m_orbitDistance = distance;
+
 	m_camera.lookAt(eye, target);
 	m_camera.setPosition(eye);
 }
@@ -962,80 +1151,229 @@ BaseApp::captureGizmoState(int index, GizmoEditState& out) {
 
 void
 BaseApp::pickActorFromMouse() {
-	float vpX = m_gui.m_viewportPos.x;
-	float vpY = m_gui.m_viewportPos.y;
-	float vpW = m_gui.m_viewportSize.x;
-	float vpH = m_gui.m_viewportSize.y;
-	if (vpW < 1.0f || vpH < 1.0f) return;
+	const float viewportX = m_gui.m_viewportPos.x;
+	const float viewportY = m_gui.m_viewportPos.y;
+	const float viewportWidth = m_gui.m_viewportSize.x;
+	const float viewportHeight = m_gui.m_viewportSize.y;
+
+	if (viewportWidth < 1.0f || viewportHeight < 1.0f) return;
 
 	ImVec2 mouse = ImGui::GetIO().MousePos;
-	float mx = mouse.x - vpX;
-	float my = mouse.y - vpY;
-	if (mx < 0.0f || my < 0.0f || mx > vpW || my > vpH) return;
+	const float mouseX = mouse.x - viewportX;
+	const float mouseY = mouse.y - viewportY;
 
-	float ndcX = (2.0f * mx / vpW) - 1.0f;
-	float ndcY = 1.0f - (2.0f * my / vpH);
-
-	XMMATRIX view = m_camera.getView();
-	XMMATRIX proj = m_camera.getProj();
-	XMVECTOR det;
-	XMMATRIX invVP = XMMatrixInverse(&det, view * proj);
-	XMVECTOR nearP = XMVector3TransformCoord(XMVectorSet(ndcX, ndcY, 0.0f, 1.0f), invVP);
-	XMVECTOR farP = XMVector3TransformCoord(XMVectorSet(ndcX, ndcY, 1.0f, 1.0f), invVP);
-
-	XMFLOAT3 o, d;
-	XMStoreFloat3(&o, nearP);
-	XMVECTOR dirV = XMVector3Normalize(XMVectorSubtract(farP, nearP));
-	XMStoreFloat3(&d, dirV);
-
-	float bestT = 1e9f;
-	int bestIndex = -1;
-
-	for (int i = 0; i < (int)m_actors.size(); ++i) {
-		if (m_actors[i].isNull()) continue;
-		EU::TSharedPointer<MeshRendererComponent> mr = m_actors[i]->getComponent<MeshRendererComponent>();
-		if (!mr || !mr->isVisible()) continue;
-		EU::TSharedPointer<Transform> t = m_actors[i]->getComponent<Transform>();
-		if (!t) continue;
-
-		EU::Vector3 lmn, lmx;
-		if (!getActorAABB(m_actors[i], lmn, lmx)) continue;
-
-		XMMATRIX world = t->worldMatrix;
-		float bmin[3] = { 1e9f, 1e9f, 1e9f };
-		float bmax[3] = { -1e9f, -1e9f, -1e9f };
-		for (int c = 0; c < 8; ++c) {
-			float cx = (c & 1) ? lmx.x : lmn.x;
-			float cy = (c & 2) ? lmx.y : lmn.y;
-			float cz = (c & 4) ? lmx.z : lmn.z;
-			XMVECTOR wc = XMVector3TransformCoord(XMVectorSet(cx, cy, cz, 1.0f), world);
-			XMFLOAT3 f; XMStoreFloat3(&f, wc);
-			bmin[0] = fminf(bmin[0], f.x); bmin[1] = fminf(bmin[1], f.y); bmin[2] = fminf(bmin[2], f.z);
-			bmax[0] = fmaxf(bmax[0], f.x); bmax[1] = fmaxf(bmax[1], f.y); bmax[2] = fmaxf(bmax[2], f.z);
-		}
-
-		float ro[3] = { o.x, o.y, o.z };
-		float rd[3] = { d.x, d.y, d.z };
-		float tmin = 0.0f, tmax = 1e9f;
-		bool hit = true;
-		for (int a = 0; a < 3; ++a) {
-			if (fabsf(rd[a]) < 1e-8f) {
-				if (ro[a] < bmin[a] || ro[a] > bmax[a]) { hit = false; break; }
-			}
-			else {
-				float inv = 1.0f / rd[a];
-				float t1 = (bmin[a] - ro[a]) * inv;
-				float t2 = (bmax[a] - ro[a]) * inv;
-				if (t1 > t2) { float tmp = t1; t1 = t2; t2 = tmp; }
-				tmin = fmaxf(tmin, t1);
-				tmax = fminf(tmax, t2);
-				if (tmin > tmax) { hit = false; break; }
-			}
-		}
-		if (hit && tmin < bestT) { bestT = tmin; bestIndex = i; }
+	if (mouseX < 0.0f || mouseY < 0.0f ||
+		mouseX > viewportWidth || mouseY > viewportHeight) {
+		return;
 	}
 
-	if (bestIndex >= 0) m_gui.selectedActorIndex = bestIndex;
+	const float ndcX = (2.0f * mouseX / viewportWidth) - 1.0f;
+	const float ndcY = 1.0f - (2.0f * mouseY / viewportHeight);
+
+	XMMATRIX inverseViewProjection = XMMatrixInverse(
+		nullptr,
+		m_camera.getView() * m_camera.getProj());
+
+	XMVECTOR nearPoint = XMVector3TransformCoord(
+		XMVectorSet(ndcX, ndcY, 0.0f, 1.0f),
+		inverseViewProjection);
+
+	XMVECTOR farPoint = XMVector3TransformCoord(
+		XMVectorSet(ndcX, ndcY, 1.0f, 1.0f),
+		inverseViewProjection);
+
+	XMVECTOR rayDirectionVector =
+		XMVector3Normalize(XMVectorSubtract(farPoint, nearPoint));
+
+	XMFLOAT3 rayOrigin;
+	XMFLOAT3 rayDirection;
+	XMStoreFloat3(&rayOrigin, nearPoint);
+	XMStoreFloat3(&rayDirection, rayDirectionVector);
+
+	float closestDistance = FLT_MAX;
+	int closestActorIndex = -1;
+
+	for (int actorIndex = 0;
+		actorIndex < static_cast<int>(m_actors.size());
+		++actorIndex) {
+
+		EU::TSharedPointer<Actor> actor = m_actors[actorIndex];
+		if (actor.isNull()) continue;
+
+		EU::TSharedPointer<MeshRendererComponent> meshRenderer =
+			actor->getComponent<MeshRendererComponent>();
+
+		EU::TSharedPointer<Transform> transform =
+			actor->getComponent<Transform>();
+
+		if (!meshRenderer || !meshRenderer->isVisible() || !transform)
+			continue;
+
+		EU::Vector3 localMin;
+		EU::Vector3 localMax;
+		if (!getActorAABB(actor, localMin, localMax))
+			continue;
+
+		// Broad phase: rayo contra AABB mundial.
+		float worldMin[3] = { 1e9f, 1e9f, 1e9f };
+		float worldMax[3] = { -1e9f, -1e9f, -1e9f };
+
+		for (int corner = 0; corner < 8; ++corner) {
+			const float x = (corner & 1) ? localMax.x : localMin.x;
+			const float y = (corner & 2) ? localMax.y : localMin.y;
+			const float z = (corner & 4) ? localMax.z : localMin.z;
+
+			XMVECTOR worldCorner = XMVector3TransformCoord(
+				XMVectorSet(x, y, z, 1.0f),
+				transform->worldMatrix);
+
+			XMFLOAT3 value;
+			XMStoreFloat3(&value, worldCorner);
+
+			worldMin[0] = fminf(worldMin[0], value.x);
+			worldMin[1] = fminf(worldMin[1], value.y);
+			worldMin[2] = fminf(worldMin[2], value.z);
+
+			worldMax[0] = fmaxf(worldMax[0], value.x);
+			worldMax[1] = fmaxf(worldMax[1], value.y);
+			worldMax[2] = fmaxf(worldMax[2], value.z);
+		}
+
+		const float origin[3] = {
+			rayOrigin.x, rayOrigin.y, rayOrigin.z
+		};
+
+		const float direction[3] = {
+			rayDirection.x, rayDirection.y, rayDirection.z
+		};
+
+		float aabbNear = 0.0f;
+		float aabbFar = FLT_MAX;
+		bool aabbHit = true;
+
+		for (int axis = 0; axis < 3; ++axis) {
+			if (fabsf(direction[axis]) < 1e-8f) {
+				if (origin[axis] < worldMin[axis] ||
+					origin[axis] > worldMax[axis]) {
+					aabbHit = false;
+					break;
+				}
+			}
+			else {
+				const float inverseDirection = 1.0f / direction[axis];
+				float first =
+					(worldMin[axis] - origin[axis]) * inverseDirection;
+				float second =
+					(worldMax[axis] - origin[axis]) * inverseDirection;
+
+				if (first > second) {
+					const float temporary = first;
+					first = second;
+					second = temporary;
+				}
+
+				aabbNear = fmaxf(aabbNear, first);
+				aabbFar = fminf(aabbFar, second);
+
+				if (aabbNear > aabbFar) {
+					aabbHit = false;
+					break;
+				}
+			}
+		}
+
+		if (!aabbHit || aabbNear > closestDistance)
+			continue;
+
+		// Narrow phase: rayo contra triángulos CPU.
+		const std::vector<MeshComponent>* cpuMeshes =
+			getActorCpuMeshes(actor);
+
+		bool preciseHit = false;
+		float preciseDistance = FLT_MAX;
+
+		if (cpuMeshes) {
+			for (const MeshComponent& mesh : *cpuMeshes) {
+				for (size_t index = 0;
+					index + 2 < mesh.m_index.size();
+					index += 3) {
+
+					const unsigned int i0 = mesh.m_index[index + 0];
+					const unsigned int i1 = mesh.m_index[index + 1];
+					const unsigned int i2 = mesh.m_index[index + 2];
+
+					if (i0 >= mesh.m_vertex.size() ||
+						i1 >= mesh.m_vertex.size() ||
+						i2 >= mesh.m_vertex.size()) {
+						continue;
+					}
+
+					const SimpleVertex& vertex0 = mesh.m_vertex[i0];
+					const SimpleVertex& vertex1 = mesh.m_vertex[i1];
+					const SimpleVertex& vertex2 = mesh.m_vertex[i2];
+
+					XMVECTOR worldVertex0 = XMVector3TransformCoord(
+						XMVectorSet(
+							vertex0.Position.x,
+							vertex0.Position.y,
+							vertex0.Position.z,
+							1.0f),
+						transform->worldMatrix);
+
+					XMVECTOR worldVertex1 = XMVector3TransformCoord(
+						XMVectorSet(
+							vertex1.Position.x,
+							vertex1.Position.y,
+							vertex1.Position.z,
+							1.0f),
+						transform->worldMatrix);
+
+					XMVECTOR worldVertex2 = XMVector3TransformCoord(
+						XMVectorSet(
+							vertex2.Position.x,
+							vertex2.Position.y,
+							vertex2.Position.z,
+							1.0f),
+						transform->worldMatrix);
+
+					XMFLOAT3 triangle0;
+					XMFLOAT3 triangle1;
+					XMFLOAT3 triangle2;
+					XMStoreFloat3(&triangle0, worldVertex0);
+					XMStoreFloat3(&triangle1, worldVertex1);
+					XMStoreFloat3(&triangle2, worldVertex2);
+
+					float triangleDistance = 0.0f;
+					if (rayTriangleIntersection(
+						rayOrigin,
+						rayDirection,
+						triangle0,
+						triangle1,
+						triangle2,
+						triangleDistance)) {
+
+						preciseHit = true;
+						preciseDistance =
+							fminf(preciseDistance, triangleDistance);
+					}
+				}
+			}
+		}
+
+		// Si no hay copia CPU, se conserva el fallback AABB.
+		const float actorDistance =
+			preciseHit ? preciseDistance : aabbNear;
+
+		if (actorDistance < closestDistance) {
+			closestDistance = actorDistance;
+			closestActorIndex = actorIndex;
+		}
+	}
+
+	if (closestActorIndex >= 0) {
+		m_gui.selectedActorIndex = closestActorIndex;
+		MESSAGE("BaseApp", "pickActorFromMouse", "Actor seleccionado desde viewport");
+	}
 }
 
 void
@@ -1073,27 +1411,109 @@ BaseApp::spawnRana(const std::string& name,
 	return a;
 }
 
+
+EU::TSharedPointer<Actor>
+BaseApp::spawnActorFromSource(
+	const std::string& modelPath,
+	const std::string& name,
+	const EU::Vector3& position,
+	const EU::Vector3& rotation,
+	const EU::Vector3& scale) {
+
+	EU::TSharedPointer<Actor> actor;
+
+	if (modelPath.empty() ||
+		toLowerCopy(modelPath) == toLowerCopy("Assets/Models/Rana.fbx")) {
+		actor = spawnRana(name, position, rotation, scale);
+		if (!actor.isNull())
+			m_actorSourcePaths[actor.get()] = "Assets/Models/Rana.fbx";
+	}
+	else {
+		actor = loadModelActor(modelPath);
+		if (!actor.isNull()) {
+			actor->setName(name);
+			EU::TSharedPointer<Transform> transform =
+				actor->getComponent<Transform>();
+
+			if (transform)
+				transform->setTransform(position, rotation, scale);
+
+			m_actorSourcePaths[actor.get()] = modelPath;
+		}
+	}
+
+	return actor;
+}
+
+const std::vector<MeshComponent>*
+BaseApp::getActorCpuMeshes(
+	const EU::TSharedPointer<Actor>& actor) const {
+
+	if (actor.isNull()) return nullptr;
+
+	EU::TSharedPointer<MeshRendererComponent> meshRenderer =
+		actor->getComponent<MeshRendererComponent>();
+
+	if (!meshRenderer || !meshRenderer->getMesh())
+		return nullptr;
+
+	Mesh* mesh = meshRenderer->getMesh();
+
+	if (mesh == &m_ranaRenderMesh)
+		return &m_ranaCpuMeshes;
+
+	for (const auto& loadedModel : m_loadedModels) {
+		if (loadedModel && &loadedModel->mesh == mesh)
+			return &loadedModel->cpuMeshes;
+	}
+
+	return nullptr;
+}
+
 void
 BaseApp::duplicateSelected() {
-	int idx = m_gui.selectedActorIndex;
-	if (idx < 0 || idx >= (int)m_actors.size() || m_actors[idx].isNull()) {
+	const int index = m_gui.selectedActorIndex;
+
+	if (index < 0 ||
+		index >= static_cast<int>(m_actors.size()) ||
+		m_actors[index].isNull()) {
 		MESSAGE("BaseApp", "duplicateSelected", "No hay actor seleccionado");
 		return;
 	}
-	EU::TSharedPointer<Actor> src = m_actors[idx];
-	if (src->getComponent<MeshRendererComponent>().isNull()) {
-		MESSAGE("BaseApp", "duplicateSelected", "El actor seleccionado NO tiene malla");
+
+	EU::TSharedPointer<Actor> source = m_actors[index];
+	EU::TSharedPointer<Transform> transform =
+		source->getComponent<Transform>();
+
+	if (!transform) return;
+
+	EU::Vector3 position = transform->getPosition();
+	position.x += 1.5f;
+
+	std::string sourcePath;
+	auto sourceIterator = m_actorSourcePaths.find(source.get());
+	if (sourceIterator != m_actorSourcePaths.end())
+		sourcePath = sourceIterator->second;
+
+	EU::TSharedPointer<Actor> duplicated = spawnActorFromSource(
+		sourcePath,
+		source->getName() + "_copy",
+		position,
+		transform->getRotation(),
+		transform->getScale());
+
+	if (duplicated.isNull()) {
+		ERROR("BaseApp", "duplicateSelected", "No se pudo duplicar el actor");
 		return;
 	}
-	EU::TSharedPointer<Transform> t = src->getComponent<Transform>();
-	EU::Vector3 pos = t ? t->getPosition() : EU::Vector3(0, 0, 0);
-	EU::Vector3 rot = t ? t->getRotation() : EU::Vector3(0, 0, 0);
-	EU::Vector3 sca = t ? t->getScale() : EU::Vector3(1, 1, 1);
-	pos.x += 1.5f;
-	EU::TSharedPointer<Actor> a = spawnRana(src->getName() + "_copy", pos, rot, sca);
-	addActorToScene(a);
-	m_commands.push(std::unique_ptr<ICommand>(new SpawnActorCommand(this, a)));
-	m_gui.selectedActorIndex = (int)m_actors.size() - 1;
+
+	addActorToScene(duplicated);
+	m_commands.push(std::unique_ptr<ICommand>(
+		new SpawnActorCommand(this, duplicated)));
+
+	m_gui.selectedActorIndex =
+		static_cast<int>(m_actors.size()) - 1;
+
 	MESSAGE("BaseApp", "duplicateSelected", "Actor duplicado");
 }
 
@@ -1112,21 +1532,31 @@ BaseApp::deleteSelected() {
 
 void
 BaseApp::copySelected() {
-	int idx = m_gui.selectedActorIndex;
-	if (idx < 0 || idx >= (int)m_actors.size() || m_actors[idx].isNull()) {
+	const int index = m_gui.selectedActorIndex;
+
+	if (index < 0 ||
+		index >= static_cast<int>(m_actors.size()) ||
+		m_actors[index].isNull()) {
 		MESSAGE("BaseApp", "copySelected", "No hay actor seleccionado");
 		return;
 	}
-	EU::TSharedPointer<Actor> src = m_actors[idx];
-	if (src->getComponent<MeshRendererComponent>().isNull()) {
-		MESSAGE("BaseApp", "copySelected", "El actor seleccionado NO tiene malla");
-		return;
-	}
-	EU::TSharedPointer<Transform> t = src->getComponent<Transform>();
-	m_clipboard.name = src->getName();
-	m_clipboard.position = t ? t->getPosition() : EU::Vector3(0, 0, 0);
-	m_clipboard.rotation = t ? t->getRotation() : EU::Vector3(0, 0, 0);
-	m_clipboard.scale = t ? t->getScale() : EU::Vector3(1, 1, 1);
+
+	EU::TSharedPointer<Actor> source = m_actors[index];
+	EU::TSharedPointer<Transform> transform =
+		source->getComponent<Transform>();
+
+	if (!transform) return;
+
+	m_clipboard.name = source->getName();
+	m_clipboard.position = transform->getPosition();
+	m_clipboard.rotation = transform->getRotation();
+	m_clipboard.scale = transform->getScale();
+
+	m_clipboard.modelPath.clear();
+	auto sourceIterator = m_actorSourcePaths.find(source.get());
+	if (sourceIterator != m_actorSourcePaths.end())
+		m_clipboard.modelPath = sourceIterator->second;
+
 	m_hasClipboard = true;
 	MESSAGE("BaseApp", "copySelected", "Actor copiado al portapapeles");
 }
@@ -1134,57 +1564,171 @@ BaseApp::copySelected() {
 void
 BaseApp::pasteClipboard() {
 	if (!m_hasClipboard) {
-		MESSAGE("BaseApp", "pasteClipboard", "Portapapeles vacio (usa Copy primero)");
+		MESSAGE("BaseApp", "pasteClipboard", "Portapapeles vacio");
 		return;
 	}
-	EU::Vector3 pos = m_clipboard.position;
-	pos.x += 1.5f;
-	EU::TSharedPointer<Actor> a = spawnRana(m_clipboard.name + "_paste", pos, m_clipboard.rotation, m_clipboard.scale);
-	addActorToScene(a);
-	m_commands.push(std::unique_ptr<ICommand>(new SpawnActorCommand(this, a)));
-	m_gui.selectedActorIndex = (int)m_actors.size() - 1;
+
+	EU::Vector3 position = m_clipboard.position;
+	position.x += 1.5f;
+
+	EU::TSharedPointer<Actor> pasted = spawnActorFromSource(
+		m_clipboard.modelPath,
+		m_clipboard.name + "_paste",
+		position,
+		m_clipboard.rotation,
+		m_clipboard.scale);
+
+	if (pasted.isNull()) {
+		ERROR("BaseApp", "pasteClipboard", "No se pudo pegar el actor");
+		return;
+	}
+
+	addActorToScene(pasted);
+	m_commands.push(std::unique_ptr<ICommand>(
+		new SpawnActorCommand(this, pasted)));
+
+	m_gui.selectedActorIndex =
+		static_cast<int>(m_actors.size()) - 1;
+
 	MESSAGE("BaseApp", "pasteClipboard", "Actor pegado");
 }
 
 void
 BaseApp::savePrefabSelected() {
-	int idx = m_gui.selectedActorIndex;
-	if (idx < 0 || idx >= (int)m_actors.size() || m_actors[idx].isNull()) return;
-	EU::TSharedPointer<Actor> src = m_actors[idx];
-	EU::TSharedPointer<Transform> t = src->getComponent<Transform>();
-	if (!t) return;
+	const int index = m_gui.selectedActorIndex;
+
+	if (index < 0 ||
+		index >= static_cast<int>(m_actors.size()) ||
+		m_actors[index].isNull()) {
+		MESSAGE("BaseApp", "savePrefabSelected", "No hay actor seleccionado");
+		return;
+	}
+
+	EU::TSharedPointer<Actor> source = m_actors[index];
+	EU::TSharedPointer<Transform> transform =
+		source->getComponent<Transform>();
+
+	if (!transform) return;
+
 	CreateDirectoryA("Saved", nullptr);
-	std::ofstream f("Saved/actor.prefab", std::ios::trunc);
-	if (!f.is_open()) { ERROR("BaseApp", "savePrefab", "No se pudo abrir el archivo"); return; }
-	EU::Vector3 p = t->getPosition(), r = t->getRotation(), s = t->getScale();
-	std::string n = src->getName();
-	for (char& ch : n) if (ch == ' ') ch = '_';
-	f << "PREFAB 1";
-		f << "NAME " << n << "";
-		f << "POSITION " << p.x << " " << p.y << " " << p.z << "";
-		f << "ROTATION " << r.x << " " << r.y << " " << r.z << "";
-		f << "SCALE " << s.x << " " << s.y << " " << s.z << "";
-		MESSAGE("BaseApp", "savePrefab", "Prefab guardado en Saved/actor.prefab");
+
+	std::ofstream file("Saved/actor.prefab", std::ios::trunc);
+	if (!file.is_open()) {
+		ERROR("BaseApp", "savePrefabSelected", "No se pudo guardar el prefab");
+		return;
+	}
+
+	std::string modelPath;
+	auto sourceIterator = m_actorSourcePaths.find(source.get());
+	if (sourceIterator != m_actorSourcePaths.end())
+		modelPath = sourceIterator->second;
+
+	EU::Vector3 position = transform->getPosition();
+	EU::Vector3 rotation = transform->getRotation();
+	EU::Vector3 scale = transform->getScale();
+
+	bool visible = true;
+	bool castShadow = true;
+
+	EU::TSharedPointer<MeshRendererComponent> meshRenderer =
+		source->getComponent<MeshRendererComponent>();
+
+	if (meshRenderer) {
+		visible = meshRenderer->isVisible();
+		castShadow = meshRenderer->canCastShadow();
+	}
+
+	file << "PREFAB 2\n";
+	file << "NAME " << std::quoted(source->getName()) << "\n";
+	file << "MODEL " << std::quoted(modelPath) << "\n";
+	file << "POSITION "
+		<< position.x << " " << position.y << " " << position.z << "\n";
+	file << "ROTATION "
+		<< rotation.x << " " << rotation.y << " " << rotation.z << "\n";
+	file << "SCALE "
+		<< scale.x << " " << scale.y << " " << scale.z << "\n";
+	file << "VISIBLE " << (visible ? 1 : 0) << "\n";
+	file << "CAST_SHADOW " << (castShadow ? 1 : 0) << "\n";
+
+	MESSAGE(
+		"BaseApp",
+		"savePrefabSelected",
+		"Prefab guardado en Saved/actor.prefab");
 }
 
 void
 BaseApp::loadPrefab() {
-	std::ifstream f("Saved/actor.prefab");
-	if (!f.is_open()) { ERROR("BaseApp", "loadPrefab", "No existe Saved/actor.prefab"); return; }
-	std::string token, name = "Prefab";
-	EU::Vector3 p(0, 0, 0), r(0, 0, 0), s(1, 1, 1);
-	int version = 0;
-	f >> token >> version;
-	while (f >> token) {
-		if (token == "NAME") f >> name;
-		else if (token == "POSITION") f >> p.x >> p.y >> p.z;
-		else if (token == "ROTATION") f >> r.x >> r.y >> r.z;
-		else if (token == "SCALE")    f >> s.x >> s.y >> s.z;
+	std::ifstream file("Saved/actor.prefab");
+
+	if (!file.is_open()) {
+		ERROR("BaseApp", "loadPrefab", "No existe Saved/actor.prefab");
+		return;
 	}
-	EU::TSharedPointer<Actor> a = spawnRana(name, p, r, s);
-	addActorToScene(a);
-	m_commands.push(std::unique_ptr<ICommand>(new SpawnActorCommand(this, a)));
-	m_gui.selectedActorIndex = (int)m_actors.size() - 1;
+
+	std::string token;
+	std::string name = "Prefab";
+	std::string modelPath;
+
+	EU::Vector3 position(0.0f, 0.0f, 0.0f);
+	EU::Vector3 rotation(0.0f, 0.0f, 0.0f);
+	EU::Vector3 scale(1.0f, 1.0f, 1.0f);
+
+	bool visible = true;
+	bool castShadow = true;
+	int version = 0;
+
+	file >> token >> version;
+
+	while (file >> token) {
+		if (token == "NAME")
+			file >> std::quoted(name);
+		else if (token == "MODEL")
+			file >> std::quoted(modelPath);
+		else if (token == "POSITION")
+			file >> position.x >> position.y >> position.z;
+		else if (token == "ROTATION")
+			file >> rotation.x >> rotation.y >> rotation.z;
+		else if (token == "SCALE")
+			file >> scale.x >> scale.y >> scale.z;
+		else if (token == "VISIBLE") {
+			int value = 1;
+			file >> value;
+			visible = value != 0;
+		}
+		else if (token == "CAST_SHADOW") {
+			int value = 1;
+			file >> value;
+			castShadow = value != 0;
+		}
+	}
+
+	EU::TSharedPointer<Actor> actor = spawnActorFromSource(
+		modelPath,
+		name,
+		position,
+		rotation,
+		scale);
+
+	if (actor.isNull()) {
+		ERROR("BaseApp", "loadPrefab", "No se pudo crear el prefab");
+		return;
+	}
+
+	EU::TSharedPointer<MeshRendererComponent> meshRenderer =
+		actor->getComponent<MeshRendererComponent>();
+
+	if (meshRenderer) {
+		meshRenderer->setVisible(visible);
+		meshRenderer->setCastShadow(castShadow);
+	}
+
+	addActorToScene(actor);
+	m_commands.push(std::unique_ptr<ICommand>(
+		new SpawnActorCommand(this, actor)));
+
+	m_gui.selectedActorIndex =
+		static_cast<int>(m_actors.size()) - 1;
+
 	MESSAGE("BaseApp", "loadPrefab", "Prefab cargado");
 }
 
@@ -1267,6 +1811,8 @@ BaseApp::loadModelActor(const std::string& modelPath) {
 	}
 
 	std::unique_ptr<LoadedModel> lm(new LoadedModel());
+	lm->cpuMeshes = meshes;
+	lm->sourcePath = modelPath;
 
 	HRESULT hr;
 	for (const MeshComponent& mc : meshes) {
@@ -1326,6 +1872,7 @@ BaseApp::loadModelActor(const std::string& modelPath) {
 	mr->setVisible(true);
 	mr->setCastShadow(true);
 
+	m_actorSourcePaths[a.get()] = modelPath;
 	m_loadedModels.push_back(std::move(lm));
 	return a;
 }

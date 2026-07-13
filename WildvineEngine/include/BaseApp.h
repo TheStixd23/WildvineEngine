@@ -29,11 +29,13 @@
 #include "Rendering/RenderScene.h"
 #include "CommandManager.h"
 #include <string>
+#include <unordered_map>
 extern IMGUI_IMPL_API
 LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 struct ActorClipboard {
 	std::string name;
+	std::string modelPath;
 	EU::Vector3 position;
 	EU::Vector3 rotation;
 	EU::Vector3 scale;
@@ -47,6 +49,9 @@ struct LoadedModel {
 	EU::Vector3 localMin;
 	EU::Vector3 localMax;
 
+	// Copia CPU para picking preciso rayo-triangulo.
+	std::vector<MeshComponent> cpuMeshes;
+	std::string sourcePath;
 };
 
 
@@ -150,6 +155,17 @@ private:
 
 	EU::TSharedPointer<Actor> spawnRana(const std::string& name,
 		const EU::Vector3& pos, const EU::Vector3& rot, const EU::Vector3& scale);
+
+	EU::TSharedPointer<Actor> spawnActorFromSource(
+		const std::string& modelPath,
+		const std::string& name,
+		const EU::Vector3& pos,
+		const EU::Vector3& rot,
+		const EU::Vector3& scale);
+
+	const std::vector<MeshComponent>* getActorCpuMeshes(
+		const EU::TSharedPointer<Actor>& actor) const;
+
 	void duplicateSelected();
 	void deleteSelected();
 	void copySelected();
@@ -158,6 +174,9 @@ private:
 	void loadPrefab();
 
 	std::vector<std::unique_ptr<LoadedModel>> m_loadedModels;
+	std::vector<MeshComponent> m_ranaCpuMeshes;
+	std::unordered_map<Actor*, std::string> m_actorSourcePaths;
+
 	std::vector<Texture> m_thumbTextures;
 	std::vector<AssetThumb> m_thumbnails;
 
@@ -221,6 +240,11 @@ private:
 	EditorViewportPass m_editorViewportPass;
 	RenderPipeline m_renderPipeline;
 	RenderScene m_renderScene;
+	// Estado de orbita DCC (Alt + clic izquierdo).
+	bool m_orbitActive = false;
+	EU::Vector3 m_orbitPivot = EU::Vector3(0.0f, 0.0f, 0.0f);
+	float m_orbitDistance = 5.0f;
+
 	bool m_editorViewportResizePending = false;
 	unsigned int m_pendingViewportWidth = 1;
 	unsigned int m_pendingViewportHeight = 1;
