@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "Prerequisites.h"
 #include "Window.h"
 #include "Device.h"
@@ -133,8 +133,8 @@ private:
 	unsigned int m_lastDrawCalls = 0;
 
 	// Picking
-	EU::Vector3 m_modelLocalMin;
-	EU::Vector3 m_modelLocalMax;
+	EU::Vector3 m_ranaModelLocalMin;
+	EU::Vector3 m_ranaModelLocalMax;
 	void pickActorFromMouse();
 
 
@@ -148,7 +148,7 @@ private:
 	ActorClipboard m_clipboard;
 	bool m_hasClipboard = false;
 
-	EU::TSharedPointer<Actor> spawnPistol(const std::string& name,
+	EU::TSharedPointer<Actor> spawnRana(const std::string& name,
 		const EU::Vector3& pos, const EU::Vector3& rot, const EU::Vector3& scale);
 	void duplicateSelected();
 	void deleteSelected();
@@ -173,28 +173,34 @@ private:
 
 
 	// Textures
-	Texture m_AlbedoSRV;
-	Texture m_MetallicSRV;
-	Texture m_RoughnessSRV;
-	Texture m_AOSRV;
-	Texture m_NormalSRV;
-	Texture m_EmissiveSRV;
-	Texture m_drakefireAlbedoSRV;
-	Texture m_drakefireNormalSRV;
-	Texture m_drakefireMetallicSRV;
-	Texture m_drakefireRoughnessSRV;
-	Texture m_drakefireAOSRV;
+	// Texturas de la rana: cuerpo
+	Texture m_ranaBodyAlbedo;
+	Texture m_ranaBodyMetallic;
+	Texture m_ranaBodyRoughness;
+	Texture m_ranaBodyAO;
+	Texture m_ranaBodyNormal;
+
+	// Texturas de la rana: cabeza
+	Texture m_ranaHeadAlbedo;
+	Texture m_ranaHeadRoughness;
+	Texture m_ranaHeadAO;
+	Texture m_ranaHeadNormal;
+
+	// Texturas de la rana: cristal
+	Texture m_ranaGlassAlbedo;
+	Texture m_ranaGlassRoughness;
+	Texture m_ranaGlassAO;
+	Texture m_ranaGlassNormal;
 
 	Camera															m_camera;
 
 	SceneGraph												m_sceneGraph;
 	std::vector<EU::TSharedPointer<Actor>> m_actors;
-	EU::TSharedPointer<Actor> m_cyberGun;
-	EU::TSharedPointer<Actor> m_drakefirePistol;
+	EU::TSharedPointer<Actor> m_rana01;
+	EU::TSharedPointer<Actor> m_rana02;
 	EU::TSharedPointer<Actor> m_directionalLightActor;
 
-	Model3D* m_model;
-	Model3D* m_drakefireModel = nullptr;
+	Model3D* m_ranaModel = nullptr;
 
 	GUI																m_gui;
 	bool m_guiInitialized = false;
@@ -205,12 +211,12 @@ private:
 	RasterizerState m_defaultRasterizer;
 	DepthStencilState m_defaultDepthStencil;
 	SamplerState m_defaultSampler;
-	Mesh m_cyberGunRenderMesh;
-	Mesh m_drakefireRenderMesh;
+	Mesh m_ranaRenderMesh;
 	Material m_pbrMaterial;
 	Material m_transparentPbrMaterial;
-	MaterialInstance m_cyberGunMaterial;
-	MaterialInstance m_drakefireMaterial;
+	MaterialInstance m_ranaBodyMaterial;
+	MaterialInstance m_ranaHeadMaterial;
+	MaterialInstance m_ranaGlassMaterial;
 
 	EditorViewportPass m_editorViewportPass;
 	RenderPipeline m_renderPipeline;

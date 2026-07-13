@@ -1,4 +1,4 @@
-#include "BaseApp.h"
+﻿#include "BaseApp.h"
 #include "ResourceManager.h"
 #include <fstream>
 
@@ -157,54 +157,87 @@ BaseApp::init() {
 	};
 	m_skyboxTex.CreateCubemap(m_device, m_deviceContext, faces, false);
 
-	// ---- Cargar modelo Pistol + texturas ----
-	std::vector<MeshComponent> cyberGunMeshes;
-	m_model = new Model3D("Assets/Models/Pistol.fbx", ModelType::FBX);
-	cyberGunMeshes = m_model->GetMeshes();
+	// ---- Cargar modelo Rana + texturas PBR ----
+	std::vector<MeshComponent> ranaMeshes;
+	m_ranaModel = new Model3D("Assets/Models/Bake_Sci-fiToad.fbx", ModelType::FBX);
+	ranaMeshes = m_ranaModel->GetMeshes();
 
-	std::vector<Texture> cyberGunTextures;
-	hr = m_AlbedoSRV.init(m_device, "Assets/Textures/Pistol/BASECOLOR_Material", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Albedo."); return hr; }
-	hr = m_MetallicSRV.init(m_device, "Assets/Textures/Pistol/METALLICMaterial", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Metallic."); return hr; }
-	hr = m_RoughnessSRV.init(m_device, "Assets/Textures/Pistol/ROUGHNESS", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Roughness."); return hr; }
-	hr = m_AOSRV.init(m_device, "Assets/Textures/Pistol/AOMaterial", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed AO."); return hr; }
-	hr = m_NormalSRV.init(m_device, "Assets/Textures/Pistol/NORMAL_Material", PNG);
-	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Normal."); return hr; }
+	if (ranaMeshes.empty()) {
+		ERROR("Main", "InitDevice", "Bake_Sci-fiToad.fbx no contiene mallas o no pudo cargarse.");
+		return E_FAIL;
+	}
 
-	cyberGunTextures.push_back(m_AlbedoSRV);
-	cyberGunTextures.push_back(m_NormalSRV);
-	cyberGunTextures.push_back(m_MetallicSRV);
-	cyberGunTextures.push_back(m_RoughnessSRV);
-	cyberGunTextures.push_back(m_AOSRV);
+	// Cuerpo
+	hr = m_ranaBodyAlbedo.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Body_BC", PNG);
+	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Body Albedo."); return hr; }
+	hr = m_ranaBodyMetallic.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Body_M", PNG);
+	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Body Metallic."); return hr; }
+	hr = m_ranaBodyRoughness.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Body_R", PNG);
+	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Body Roughness."); return hr; }
+	hr = m_ranaBodyAO.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Body_AO", PNG);
+	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Body AO."); return hr; }
+	hr = m_ranaBodyNormal.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Body_N", PNG);
+	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Body Normal."); return hr; }
 
-	// ---- Mesh de render (compartido por ambas instancias) ----
-	m_cyberGunRenderMesh.destroy();
-	for (const MeshComponent& meshComponent : cyberGunMeshes) {
+	// Cabeza
+	hr = m_ranaHeadAlbedo.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Head_BC", PNG);
+	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Head Albedo."); return hr; }
+	hr = m_ranaHeadRoughness.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Head_R", PNG);
+	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Head Roughness."); return hr; }
+	hr = m_ranaHeadAO.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Head_AO", PNG);
+	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Head AO."); return hr; }
+	hr = m_ranaHeadNormal.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Head_N", PNG);
+	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Head Normal."); return hr; }
+
+	// Cristal. Se mantiene opaco por ahora porque el renderer clasifica
+	// la transparencia por actor completo, no por submalla.
+	hr = m_ranaGlassAlbedo.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Glass_BC", PNG);
+	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Glass Albedo."); return hr; }
+	hr = m_ranaGlassRoughness.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Glass_R", PNG);
+	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Glass Roughness."); return hr; }
+	hr = m_ranaGlassAO.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Glass_O", PNG);
+	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Glass Occlusion."); return hr; }
+	hr = m_ranaGlassNormal.init(m_device, "Assets/Textures/Rana/Sci-FIToad_Glass_N", PNG);
+	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana Glass Normal."); return hr; }
+
+	// ---- Mesh de render compartido por las dos instancias ----
+	m_ranaRenderMesh.destroy();
+	for (const MeshComponent& meshComponent : ranaMeshes) {
 		Submesh submesh{};
 		hr = submesh.vertexBuffer.init(m_device, meshComponent, D3D11_BIND_VERTEX_BUFFER);
-		if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed vertex buffer."); return hr; }
+		if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana vertex buffer."); return hr; }
 		hr = submesh.indexBuffer.init(m_device, meshComponent, D3D11_BIND_INDEX_BUFFER);
-		if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed index buffer."); return hr; }
+		if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rana index buffer."); return hr; }
 		submesh.indexCount = meshComponent.m_numIndex;
 		submesh.startIndex = 0;
-		submesh.materialSlot = 0;
-		m_cyberGunRenderMesh.getSubmeshes().push_back(std::move(submesh));
+
+		// 0 = Body, 1 = Head, 2 = Glass.
+		// El slot se decide usando el nombre de la malla dentro del FBX.
+		std::string meshName = toLowerCopy(meshComponent.m_name);
+		if (containsStr(meshName, "glass") || containsStr(meshName, "visor")) {
+			submesh.materialSlot = 2;
+		}
+		else if (containsStr(meshName, "head") || containsStr(meshName, "cabeza")) {
+			submesh.materialSlot = 1;
+		}
+		else {
+			submesh.materialSlot = 0;
+		}
+
+		m_ranaRenderMesh.getSubmeshes().push_back(std::move(submesh));
 	}
 
 	// AABB local del modelo (para picking)
-	m_modelLocalMin = EU::Vector3(1e9f, 1e9f, 1e9f);
-	m_modelLocalMax = EU::Vector3(-1e9f, -1e9f, -1e9f);
-	for (const MeshComponent& mc : cyberGunMeshes) {
+	m_ranaModelLocalMin = EU::Vector3(1e9f, 1e9f, 1e9f);
+	m_ranaModelLocalMax = EU::Vector3(-1e9f, -1e9f, -1e9f);
+	for (const MeshComponent& mc : ranaMeshes) {
 		for (const SimpleVertex& v : mc.m_vertex) {
-			m_modelLocalMin.x = fminf(m_modelLocalMin.x, v.Position.x);
-			m_modelLocalMin.y = fminf(m_modelLocalMin.y, v.Position.y);
-			m_modelLocalMin.z = fminf(m_modelLocalMin.z, v.Position.z);
-			m_modelLocalMax.x = fmaxf(m_modelLocalMax.x, v.Position.x);
-			m_modelLocalMax.y = fmaxf(m_modelLocalMax.y, v.Position.y);
-			m_modelLocalMax.z = fmaxf(m_modelLocalMax.z, v.Position.z);
+			m_ranaModelLocalMin.x = fminf(m_ranaModelLocalMin.x, v.Position.x);
+			m_ranaModelLocalMin.y = fminf(m_ranaModelLocalMin.y, v.Position.y);
+			m_ranaModelLocalMin.z = fminf(m_ranaModelLocalMin.z, v.Position.z);
+			m_ranaModelLocalMax.x = fmaxf(m_ranaModelLocalMax.x, v.Position.x);
+			m_ranaModelLocalMax.y = fmaxf(m_ranaModelLocalMax.y, v.Position.y);
+			m_ranaModelLocalMax.z = fmaxf(m_ranaModelLocalMax.z, v.Position.z);
 		}
 	}
 
@@ -228,7 +261,7 @@ BaseApp::init() {
 
 	m_skybox.init(m_device, &m_deviceContext, m_skyboxTex);
 
-	hr = m_defaultRasterizer.init(m_device, D3D11_FILL_SOLID, D3D11_CULL_BACK, false, true);
+	hr = m_defaultRasterizer.init(m_device, D3D11_FILL_SOLID, D3D11_CULL_NONE, false, true);
 	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed Rasterizer."); return hr; }
 	hr = m_defaultDepthStencil.init(m_device, true, D3D11_DEPTH_WRITE_MASK_ALL, D3D11_COMPARISON_LESS);
 	if (FAILED(hr)) { ERROR("Main", "InitDevice", "Failed DepthStencilState."); return hr; }
@@ -242,58 +275,73 @@ BaseApp::init() {
 	m_pbrMaterial.setDomain(MaterialDomain::Opaque);
 	m_pbrMaterial.setBlendMode(BlendMode::Opaque);
 
-	m_cyberGunMaterial.setMaterial(&m_pbrMaterial);
-	m_cyberGunMaterial.setAlbedo(&m_AlbedoSRV);
-	m_cyberGunMaterial.setNormal(&m_NormalSRV);
-	m_cyberGunMaterial.setMetallic(&m_MetallicSRV);
-	m_cyberGunMaterial.setRoughness(&m_RoughnessSRV);
-	m_cyberGunMaterial.setAO(&m_AOSRV);
-	m_cyberGunMaterial.getParams().baseColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	m_cyberGunMaterial.getParams().metallic = 1.0f;
-	m_cyberGunMaterial.getParams().roughness = 1.0f;
-	m_cyberGunMaterial.getParams().ao = 1.0f;
-	m_cyberGunMaterial.getParams().normalScale = 1.0f;
-	m_cyberGunMaterial.getParams().emissiveStrength = 1.0f;
-	m_cyberGunMaterial.getParams().alphaCutoff = 0.5f;
+	// ---- Material del cuerpo ----
+	m_ranaBodyMaterial.setMaterial(&m_pbrMaterial);
+	m_ranaBodyMaterial.setAlbedo(&m_ranaBodyAlbedo);
+	m_ranaBodyMaterial.setNormal(&m_ranaBodyNormal);
+	m_ranaBodyMaterial.setMetallic(&m_ranaBodyMetallic);
+	m_ranaBodyMaterial.setRoughness(&m_ranaBodyRoughness);
+	m_ranaBodyMaterial.setAO(&m_ranaBodyAO);
+	m_ranaBodyMaterial.getParams().baseColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	m_ranaBodyMaterial.getParams().metallic = 0.0f;
+	m_ranaBodyMaterial.getParams().roughness = 0.55f;
+	m_ranaBodyMaterial.getParams().ao = 1.0f;
+	m_ranaBodyMaterial.getParams().normalScale = 1.0f;
+	m_ranaBodyMaterial.getParams().emissiveStrength = 0.0f;
+	m_ranaBodyMaterial.getParams().alphaCutoff = 0.5f;
+
+	// ---- Material de la cabeza ----
+	m_ranaHeadMaterial.setMaterial(&m_pbrMaterial);
+	m_ranaHeadMaterial.setAlbedo(&m_ranaHeadAlbedo);
+	m_ranaHeadMaterial.setNormal(&m_ranaHeadNormal);
+	m_ranaHeadMaterial.setMetallic(&m_ranaBodyMetallic); // fallback: no hay mapa M de cabeza
+	m_ranaHeadMaterial.setRoughness(&m_ranaHeadRoughness);
+	m_ranaHeadMaterial.setAO(&m_ranaHeadAO);
+	m_ranaHeadMaterial.getParams().baseColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	m_ranaHeadMaterial.getParams().metallic = 0.0f;
+	m_ranaHeadMaterial.getParams().roughness = 0.60f;
+	m_ranaHeadMaterial.getParams().ao = 1.0f;
+	m_ranaHeadMaterial.getParams().normalScale = 1.0f;
+	m_ranaHeadMaterial.getParams().emissiveStrength = 0.0f;
+	m_ranaHeadMaterial.getParams().alphaCutoff = 0.5f;
+
+	// ---- Material del cristal ----
+	m_ranaGlassMaterial.setMaterial(&m_pbrMaterial);
+	m_ranaGlassMaterial.setAlbedo(&m_ranaGlassAlbedo);
+	m_ranaGlassMaterial.setNormal(&m_ranaGlassNormal);
+	m_ranaGlassMaterial.setMetallic(&m_ranaBodyMetallic); // fallback
+	m_ranaGlassMaterial.setRoughness(&m_ranaGlassRoughness);
+	m_ranaGlassMaterial.setAO(&m_ranaGlassAO);
+	m_ranaGlassMaterial.getParams().baseColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	m_ranaGlassMaterial.getParams().metallic = 0.0f;
+	m_ranaGlassMaterial.getParams().roughness = 0.20f;
+	m_ranaGlassMaterial.getParams().ao = 1.0f;
+	m_ranaGlassMaterial.getParams().normalScale = 1.0f;
+	m_ranaGlassMaterial.getParams().emissiveStrength = 0.0f;
+	m_ranaGlassMaterial.getParams().alphaCutoff = 0.5f;
 
 	// ---- Actor 1 ----
-	m_cyberGun = EU::MakeShared<Actor>(m_device);
-	if (m_cyberGun.isNull()) { ERROR("Main", "InitDevice", "Failed actor 1."); return E_FAIL; }
-	m_cyberGun->setMesh(m_device, cyberGunMeshes);
-	m_cyberGun->setTextures(cyberGunTextures);
-	m_cyberGun->setName("Pistol_01");
-	m_cyberGun->getComponent<Transform>()->setTransform(
-		EU::Vector3(-1.5f, 2.92f, 5.60f),
-		EU::Vector3(-1.80f, 2.00f, -0.20f),
-		EU::Vector3(1.0f, 1.0f, 1.0f));
+	m_rana01 = EU::MakeShared<Actor>(m_device);
+	if (m_rana01.isNull()) { ERROR("Main", "InitDevice", "Failed actor 1."); return E_FAIL; }
+	m_rana01->setName("Rana_01");
+	m_rana01->getComponent<Transform>()->setTransform(
+		EU::Vector3(0.0f, 0.0f, 5.60f),
+		EU::Vector3(0.0f, XM_PIDIV2, 0.0f),
+		EU::Vector3(0.10f, 0.10f, 0.10f));
 	{
-		EU::TSharedPointer<MeshRendererComponent> mr = m_cyberGun->getComponent<MeshRendererComponent>();
-		if (!mr) { mr = EU::MakeShared<MeshRendererComponent>(); m_cyberGun->addComponent(mr); }
-		mr->setMesh(&m_cyberGunRenderMesh);
-		mr->setMaterialInstance(&m_cyberGunMaterial);
+		EU::TSharedPointer<MeshRendererComponent> mr = m_rana01->getComponent<MeshRendererComponent>();
+		if (!mr) { mr = EU::MakeShared<MeshRendererComponent>(); m_rana01->addComponent(mr); }
+		mr->setMesh(&m_ranaRenderMesh);
+		mr->setMaterialInstances({ &m_ranaBodyMaterial, &m_ranaHeadMaterial, &m_ranaGlassMaterial });
 		mr->setVisible(true);
 		mr->setCastShadow(true);
 	}
-	m_actors.push_back(m_cyberGun);
-	m_sceneGraph.addEntity(m_cyberGun.get());
+	m_actors.push_back(m_rana01);
+	m_sceneGraph.addEntity(m_rana01.get());
 
-	// ---- Actor 2 ----
-	m_drakefirePistol = EU::MakeShared<Actor>(m_device);
-	if (!m_drakefirePistol.isNull()) {
-		m_drakefirePistol->setName("Pistol_02");
-		m_drakefirePistol->getComponent<Transform>()->setTransform(
-			EU::Vector3(1.5f, 2.92f, 5.60f),
-			EU::Vector3(-1.80f, 2.00f, -0.20f),
-			EU::Vector3(1.0f, 1.0f, 1.0f));
-		EU::TSharedPointer<MeshRendererComponent> mr = m_drakefirePistol->getComponent<MeshRendererComponent>();
-		if (!mr) { mr = EU::MakeShared<MeshRendererComponent>(); m_drakefirePistol->addComponent(mr); }
-		mr->setMesh(&m_cyberGunRenderMesh);
-		mr->setMaterialInstance(&m_cyberGunMaterial);
-		mr->setVisible(true);
-		mr->setCastShadow(true);
-		m_actors.push_back(m_drakefirePistol);
-		m_sceneGraph.addEntity(m_drakefirePistol.get());
-	}
+	// ---- Actor 2 desactivado temporalmente ----
+	// Se deja una sola rana visible para evitar que dos instancias se encimen.
+	m_rana02 = EU::TSharedPointer<Actor>();
 
 	// ---- Luz direccional ----
 	m_directionalLightActor = EU::MakeShared<Actor>(m_device);
@@ -589,13 +637,20 @@ BaseApp::destroy() {
 	m_sceneGraph.destroy();
 	m_renderPipeline.destroy();
 	m_editorViewportPass.destroy();
-	m_cyberGunRenderMesh.destroy();
-	m_drakefireRenderMesh.destroy();
-	m_AlbedoSRV.destroy();
-	m_MetallicSRV.destroy();
-	m_NormalSRV.destroy();
-	m_RoughnessSRV.destroy();
-	m_AOSRV.destroy();
+	m_ranaRenderMesh.destroy();
+	m_ranaBodyAlbedo.destroy();
+	m_ranaBodyMetallic.destroy();
+	m_ranaBodyNormal.destroy();
+	m_ranaBodyRoughness.destroy();
+	m_ranaBodyAO.destroy();
+	m_ranaHeadAlbedo.destroy();
+	m_ranaHeadNormal.destroy();
+	m_ranaHeadRoughness.destroy();
+	m_ranaHeadAO.destroy();
+	m_ranaGlassAlbedo.destroy();
+	m_ranaGlassNormal.destroy();
+	m_ranaGlassRoughness.destroy();
+	m_ranaGlassAO.destroy();
 	m_defaultRasterizer.destroy();
 	m_defaultDepthStencil.destroy();
 	m_defaultSampler.destroy();
@@ -609,10 +664,8 @@ BaseApp::destroy() {
 		m_gui.destroy();
 		m_guiInitialized = false;
 	}
-	delete m_model;
-	m_model = nullptr;
-	delete m_drakefireModel;
-	m_drakefireModel = nullptr;
+	delete m_ranaModel;
+	m_ranaModel = nullptr;
 	for (auto& lm : m_loadedModels) {
 		if (lm) {
 			lm->mesh.destroy();
@@ -900,7 +953,7 @@ BaseApp::removeActorFromScene(const EU::TSharedPointer<Actor>& actor) {
 }
 
 EU::TSharedPointer<Actor>
-BaseApp::spawnPistol(const std::string& name,
+BaseApp::spawnRana(const std::string& name,
 	const EU::Vector3& pos, const EU::Vector3& rot, const EU::Vector3& scale) {
 	EU::TSharedPointer<Actor> a = EU::MakeShared<Actor>(m_device);
 	if (a.isNull()) return a;
@@ -909,8 +962,8 @@ BaseApp::spawnPistol(const std::string& name,
 	if (t) t->setTransform(pos, rot, scale);
 	EU::TSharedPointer<MeshRendererComponent> mr = a->getComponent<MeshRendererComponent>();
 	if (!mr) { mr = EU::MakeShared<MeshRendererComponent>(); a->addComponent(mr); }
-	mr->setMesh(&m_cyberGunRenderMesh);
-	mr->setMaterialInstance(&m_cyberGunMaterial);
+	mr->setMesh(&m_ranaRenderMesh);
+	mr->setMaterialInstances({ &m_ranaBodyMaterial, &m_ranaHeadMaterial, &m_ranaGlassMaterial });
 	mr->setVisible(true);
 	mr->setCastShadow(true);
 	return a;
@@ -933,7 +986,7 @@ BaseApp::duplicateSelected() {
 	EU::Vector3 rot = t ? t->getRotation() : EU::Vector3(0, 0, 0);
 	EU::Vector3 sca = t ? t->getScale() : EU::Vector3(1, 1, 1);
 	pos.x += 1.5f;
-	EU::TSharedPointer<Actor> a = spawnPistol(src->getName() + "_copy", pos, rot, sca);
+	EU::TSharedPointer<Actor> a = spawnRana(src->getName() + "_copy", pos, rot, sca);
 	addActorToScene(a);
 	m_commands.push(std::unique_ptr<ICommand>(new SpawnActorCommand(this, a)));
 	m_gui.selectedActorIndex = (int)m_actors.size() - 1;
@@ -982,7 +1035,7 @@ BaseApp::pasteClipboard() {
 	}
 	EU::Vector3 pos = m_clipboard.position;
 	pos.x += 1.5f;
-	EU::TSharedPointer<Actor> a = spawnPistol(m_clipboard.name + "_paste", pos, m_clipboard.rotation, m_clipboard.scale);
+	EU::TSharedPointer<Actor> a = spawnRana(m_clipboard.name + "_paste", pos, m_clipboard.rotation, m_clipboard.scale);
 	addActorToScene(a);
 	m_commands.push(std::unique_ptr<ICommand>(new SpawnActorCommand(this, a)));
 	m_gui.selectedActorIndex = (int)m_actors.size() - 1;
@@ -1003,11 +1056,11 @@ BaseApp::savePrefabSelected() {
 	std::string n = src->getName();
 	for (char& ch : n) if (ch == ' ') ch = '_';
 	f << "PREFAB 1";
-		f << "NAME " << n << "";
-		f << "POSITION " << p.x << " " << p.y << " " << p.z << "";
-		f << "ROTATION " << r.x << " " << r.y << " " << r.z << "";
-		f << "SCALE " << s.x << " " << s.y << " " << s.z << "";
-		MESSAGE("BaseApp", "savePrefab", "Prefab guardado en Saved/actor.prefab");
+	f << "NAME " << n << "";
+	f << "POSITION " << p.x << " " << p.y << " " << p.z << "";
+	f << "ROTATION " << r.x << " " << r.y << " " << r.z << "";
+	f << "SCALE " << s.x << " " << s.y << " " << s.z << "";
+	MESSAGE("BaseApp", "savePrefab", "Prefab guardado en Saved/actor.prefab");
 }
 
 void
@@ -1024,7 +1077,7 @@ BaseApp::loadPrefab() {
 		else if (token == "ROTATION") f >> r.x >> r.y >> r.z;
 		else if (token == "SCALE")    f >> s.x >> s.y >> s.z;
 	}
-	EU::TSharedPointer<Actor> a = spawnPistol(name, p, r, s);
+	EU::TSharedPointer<Actor> a = spawnRana(name, p, r, s);
 	addActorToScene(a);
 	m_commands.push(std::unique_ptr<ICommand>(new SpawnActorCommand(this, a)));
 	m_gui.selectedActorIndex = (int)m_actors.size() - 1;
@@ -1091,7 +1144,7 @@ BaseApp::loadModelTextures(LoadedModel& lm, const std::string& folder) {
 		}
 	}
 	if (!lm.albedo.m_textureFromImg) {
-		lm.materialInstance.setAlbedo(&m_AlbedoSRV); // fallback para no quedar negro
+		lm.materialInstance.setAlbedo(&m_ranaBodyAlbedo); // fallback para no quedar negro
 		MESSAGE("BaseApp", "loadModelTextures", "Sin albedo en la carpeta; usando textura fallback");
 	}
 }
@@ -1181,7 +1234,7 @@ BaseApp::getActorAABB(const EU::TSharedPointer<Actor>& actor, EU::Vector3& outMi
 	Mesh* mesh = mr->getMesh();
 	if (!mesh) return false;
 
-	if (mesh == &m_cyberGunRenderMesh) { outMin = m_modelLocalMin; outMax = m_modelLocalMax; return true; }
+	if (mesh == &m_ranaRenderMesh) { outMin = m_ranaModelLocalMin; outMax = m_ranaModelLocalMax; return true; }
 	for (auto& lm : m_loadedModels) {
 		if (lm && &lm->mesh == mesh) { outMin = lm->localMin; outMax = lm->localMax; return true; }
 	}

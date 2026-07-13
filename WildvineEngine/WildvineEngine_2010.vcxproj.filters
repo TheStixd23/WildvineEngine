@@ -219,9 +219,6 @@
     <ClInclude Include="include\SamplerState.h">
       <Filter>include</Filter>
     </ClInclude>
-    <ClInclude Include="include\BaseApp.h">
-      <Filter>include</Filter>
-    </ClInclude>
     <ClInclude Include="include\IResource.h">
       <Filter>include\Patterns</Filter>
     </ClInclude>
@@ -363,6 +360,9 @@
     </ClInclude>
     <ClInclude Include="include\Rendering\DeferredRenderer.h">
       <Filter>include\Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="include\BaseApp.h">
+      <Filter>include</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
