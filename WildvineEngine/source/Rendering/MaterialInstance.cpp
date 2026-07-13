@@ -3,6 +3,7 @@
  * @brief Implementa la logica de MaterialInstance dentro del subsistema Rendering.
  * @ingroup rendering
  */
+
 #include "Rendering/MaterialInstance.h"
 #include "DeviceContext.h"
 #include "Texture.h"
@@ -31,5 +32,3 @@ MaterialInstance::bindTextures(DeviceContext& deviceContext) const {
 		m_emissive->render(deviceContext, 5, 1);
 	}
 }
-
-

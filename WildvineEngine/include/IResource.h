@@ -1,13 +1,8 @@
-/**
- * @file IResource.h
- * @brief Declara la API de IResource dentro del subsistema Core.
- * @ingroup core
- */
 #pragma once
 #include "Prerequisites.h"
 
-enum class 
-ResourceType {
+enum class
+	ResourceType {
 	Unknown,
 	Model3D,
 	Texture,
@@ -16,8 +11,8 @@ ResourceType {
 	Material
 };
 
-enum class 
-ResourceState {
+enum class
+	ResourceState {
 	Unloaded,
 	Loading,
 	Loaded,
@@ -32,7 +27,8 @@ public:
 		, m_type(ResourceType::Unknown)
 		, m_state(ResourceState::Unloaded)
 		, m_id(GenerateID())
-	{	}
+	{
+	}
 	virtual ~IResource() = default;
 
 	// Crear recurso GPU
@@ -69,4 +65,3 @@ private:
 		return nextID++;
 	}
 };
-

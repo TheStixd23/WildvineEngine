@@ -1,8 +1,3 @@
-/**
- * @file Viewport.cpp
- * @brief Implementa la logica de Viewport dentro del subsistema Core.
- * @ingroup core
- */
 #include "Viewport.h"
 #include "Window.h"
 #include "DeviceContext.h"
@@ -52,4 +47,3 @@ void Viewport::render(DeviceContext& deviceContext) {
 	}
 	deviceContext.RSSetViewports(1, &m_viewport);
 }
-

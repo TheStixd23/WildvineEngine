@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file ForwardRenderer.cpp
  * @brief Implementa la logica de ForwardRenderer dentro del subsistema Rendering.
  * @ingroup rendering
@@ -150,7 +150,7 @@ ForwardRenderer::buildQueues(RenderScene& scene, const Camera& camera) {
 	std::sort(m_transparentQueue.begin(), m_transparentQueue.end(),
 		[](const RenderObject* lhs, const RenderObject* rhs) {
 			return lhs->distanceToCamera > rhs->distanceToCamera;
-	});
+		});
 }
 
 void
@@ -496,8 +496,3 @@ ForwardRenderer::resolveBlendState(const Material* material) const {
 		return m_alphaBlendState ? m_alphaBlendState : m_opaqueBlendState;
 	}
 }
-
-
-
-
-

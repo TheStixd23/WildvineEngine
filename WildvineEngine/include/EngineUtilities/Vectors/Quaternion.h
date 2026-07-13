@@ -1,12 +1,7 @@
-/**
- * @file Quaternion.h
- * @brief Declara la API de Quaternion dentro del subsistema Math.
- * @ingroup math
- */
 /*
  * MIT License
  *
- * Copyright (c) 2024 Roberto Charreton
+ * Copyright (c) 2025 Roberto Charreton
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -139,7 +134,7 @@ namespace EU {
 		 * @return The magnitude of the quaternion.
 		 */
 		float magnitude() const {
-			return EU::sqrt(w * w + x * x + y * y + z * z);
+			return EngineUtilities::sqrt(w * w + x * x + y * y + z * z);
 		}
 
 		/**
@@ -199,9 +194,9 @@ namespace EU {
 		 */
 		static Quaternion fromAxisAngle(const Vector3& axis, float angle) {
 			float halfAngle = angle * 0.5f;
-			float sinHalfAngle = EU::sin(halfAngle);
+			float sinHalfAngle = EngineUtilities::sin(halfAngle);
 			return Quaternion(
-				EU::cos(halfAngle),
+				EngineUtilities::cos(halfAngle),
 				axis.x * sinHalfAngle,
 				axis.y * sinHalfAngle,
 				axis.z * sinHalfAngle
@@ -238,5 +233,3 @@ namespace EU {
 		}*/
 	};
 }
-
-

@@ -1,12 +1,8 @@
-/**
- * @file Material.h
- * @brief Declara la API de Material dentro del subsistema Rendering de WildvineEngine.
- * @ingroup rendering
- */
-#pragma once
+Ôªø#pragma once
 #include "Prerequisites.h"
 #include "Rendering/RenderTypes.h"
 
+// Forward declarations para optimizar tiempos de compilaci√≥n
 class ShaderProgram;
 class RasterizerState;
 class DepthStencilState;
@@ -14,97 +10,82 @@ class SamplerState;
 
 /**
  * @class Material
- * @brief Describe el estado fijo compartido por una o mas instancias de material.
+ * @brief Representa un material de renderizado que encapsula los estados de la GPU y los shaders.
  *
- * Un `Material` apunta a shader, estados de rasterizacion/profundidad y al modo de
- * mezcla que debe aplicar el renderer al dibujar una superficie.
+ * La clase Material agrupa la combinaci√≥n de shaders (programas) y configuraciones del pipeline
+ * (rasterizado, pruebas de profundidad/stencil, muestreo de texturas y modos de mezcla)
+ * necesarios para definir la apariencia visual de un objeto en la escena.
  */
-class
-	Material {
+class Material {
 public:
-	/**
-	 * @brief Asigna el programa de shader principal que utilizar· el material.
-	 * @param shader Puntero al programa de shader.
-	 */
-	void
-		setShader(ShaderProgram* shader) { m_shader = shader; }
+    /** @name Setters (Configuraci√≥n del Material) */
+    ///@{
 
-	/**
-	 * @brief Define el estado de rasterizaciÛn para las superficies que usen este material.
-	 * @param state Puntero al estado de rasterizaciÛn.
-	 */
-	void
-		setRasterizerState(RasterizerState* state) { m_rasterizerState = state; }
+    /**
+     * @brief Asigna el programa de shaders que utilizar√° este material.
+     * @param shader Puntero al ShaderProgram (Vertex, Pixel, etc.).
+     */
+    void setShader(ShaderProgram* shader) { m_shader = shader; }
 
-	/**
-	 * @brief Define el estado de prueba de profundidad y estÈncil.
-	 * @param state Puntero al estado de profundidad/estÈncil.
-	 */
-	void
-		setDepthStencilState(DepthStencilState* state) { m_depthStencilState = state; }
+    /**
+     * @brief Define el estado del rasterizador (e.g., Culling, Wireframe).
+     * @param state Puntero al objeto que contiene la configuraci√≥n de rasterizaci√≥n.
+     */
+    void setRasterizerState(RasterizerState* state) { m_rasterizerState = state; }
 
-	/**
-	 * @brief Configura el sampler por defecto que se utilizar· para muestrear las texturas.
-	 * @param state Puntero al estado del sampler.
-	 */
-	void
-		setSamplerState(SamplerState* state) { m_samplerState = state; }
+    /**
+     * @brief Define el estado de la prueba de profundidad y stencil.
+     * @param state Puntero con la configuraci√≥n de profundidad y m√°scara de stencil.
+     */
+    void setDepthStencilState(DepthStencilState* state) { m_depthStencilState = state; }
 
-	/**
-	 * @brief Establece el dominio de renderizado (ej. Opaco, Transparente).
-	 * @param domain Dominio al que pertenece el material.
-	 */
-	void
-		setDomain(MaterialDomain domain) { m_domain = domain; }
+    /**
+     * @brief Asigna el estado del muestreador de texturas (e.g., filtrado Anisotr√≥pico, Bilineal).
+     * @param state Puntero con la configuraci√≥n de muestreo de texturas.
+     */
+    void setSamplerState(SamplerState* state) { m_samplerState = state; }
 
-	/**
-	 * @brief Establece el modo de mezcla a utilizar (ej. Opaque, Alpha, Additive).
-	 * @param blendMode Modo de mezcla solicitado.
-	 */
-	void
-		setBlendMode(BlendMode blendMode) { m_blendMode = blendMode; }
+    /**
+     * @brief Establece el dominio del material (e.g., Opaco, Transl√∫cido, Post-Procesado).
+     * @param domain Tipo de dominio proveniente de MaterialDomain.
+     */
+    void setDomain(MaterialDomain domain) { m_domain = domain; }
 
-	/**
-	 * @brief Obtiene el shader principal asociado al material.
-	 * @return ShaderProgram* Puntero al shader, o nullptr si no ha sido asignado.
-	 */
-	ShaderProgram* getShader() const { return m_shader; }
+    /**
+     * @brief Configura el modo de mezcla (Blend Mode) para la combinaci√≥n de colores en el render target.
+     * @param blendMode Tipo de mezcla proveniente de BlendMode.
+     */
+    void setBlendMode(BlendMode blendMode) { m_blendMode = blendMode; }
+    ///@}
 
-	/**
-	 * @brief Obtiene el estado de rasterizaciÛn asociado.
-	 * @return RasterizerState* Puntero al estado de rasterizaciÛn.
-	 */
-	RasterizerState* getRasterizerState() const { return m_rasterizerState; }
+    /** @name Getters (Consulta de Propiedades) */
+    ///@{
 
-	/**
-	 * @brief Obtiene el estado de profundidad y estÈncil asociado.
-	 * @return DepthStencilState* Puntero al estado de profundidad/estÈncil.
-	 */
-	DepthStencilState* getDepthStencilState() const { return m_depthStencilState; }
+    /** @return ShaderProgram* Puntero al shader actual asignado. */
+    ShaderProgram* getShader() const { return m_shader; }
 
-	/**
-	 * @brief Obtiene el sampler por defecto de las texturas.
-	 * @return SamplerState* Puntero al estado del sampler.
-	 */
-	SamplerState* getSamplerState() const { return m_samplerState; }
+    /** @return RasterizerState* Puntero al estado del rasterizador actual. */
+    RasterizerState* getRasterizerState() const { return m_rasterizerState; }
 
-	/**
-	 * @brief Obtiene el dominio de renderizado al que pertenece el material.
-	 * @return MaterialDomain Dominio actual del material.
-	 */
-	MaterialDomain getDomain() const { return m_domain; }
+    /** @return DepthStencilState* Puntero al estado de profundidad y stencil actual. */
+    DepthStencilState* getDepthStencilState() const { return m_depthStencilState; }
 
-	/**
-	 * @brief Obtiene el modo de mezcla configurado en el material.
-	 * @return BlendMode Modo de mezcla actual.
-	 */
-	BlendMode getBlendMode() const { return m_blendMode; }
+    /** @return SamplerState* Puntero al estado del muestreador actual. */
+    SamplerState* getSamplerState() const { return m_samplerState; }
+
+    /** @return MaterialDomain El dominio actual al que pertenece este material. */
+    MaterialDomain getDomain() const { return m_domain; }
+
+    /** @return BlendMode El modo de mezcla actual del material. */
+    BlendMode getBlendMode() const { return m_blendMode; }
+    ///@}
 
 private:
-	ShaderProgram* m_shader = nullptr;                   ///< Shader principal del material.
-	RasterizerState* m_rasterizerState = nullptr;        ///< Estado de rasterizacion asociado.
-	DepthStencilState* m_depthStencilState = nullptr;    ///< Estado de profundidad/estencil asociado.
-	SamplerState* m_samplerState = nullptr;              ///< Sampler por defecto para texturas del material.
-	MaterialDomain m_domain = MaterialDomain::Opaque;    ///< Dominio de render del material.
-	BlendMode m_blendMode = BlendMode::Opaque;           ///< Modo de mezcla solicitado por el material.
+    ShaderProgram* m_shader = nullptr;             ///< Programa de shaders activo.
+    RasterizerState* m_rasterizerState = nullptr;   ///< Configuraci√≥n del pipeline de rasterizaci√≥n.
+    DepthStencilState* m_depthStencilState = nullptr; ///< Configuraci√≥n de pruebas Z-buffer y Stencil.
+    SamplerState* m_samplerState = nullptr;         ///< Configuraci√≥n de filtrado y envoltura de texturas.
+
+    MaterialDomain m_domain = MaterialDomain::Opaque; ///< Dominio del material. Por defecto: Opaco.
+    BlendMode m_blendMode = BlendMode::Opaque;       ///< Modo de mezcla. Por defecto: Opaco.
 };

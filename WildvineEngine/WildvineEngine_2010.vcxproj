@@ -448,6 +448,7 @@
     <ClCompile Include="source\Rendering\DeferredRenderer.cpp" />
     <ClCompile Include="source\Rendering\ForwardRenderer.cpp" />
     <ClCompile Include="source\Rendering\MaterialInstance.cpp" />
+    <ClCompile Include="source\Rendering\RenderPipeline.cpp" />
     <ClCompile Include="source\Rendering\RenderScene.cpp" />
     <ClCompile Include="source\InputLayout.cpp" />
     <ClCompile Include="source\Model3D.cpp" />
@@ -478,7 +479,6 @@
     <ClInclude Include="Imgui\ImGuizmo\ImGuizmo.h" />
     <ClInclude Include="include\BaseApp.h" />
     <ClInclude Include="include\Buffer.h" />
-    <ClInclude Include="include\DeferredRenderer.h" />
     <ClInclude Include="include\DepthStencilState.h" />
     <ClInclude Include="include\DepthStencilView.h" />
     <ClInclude Include="include\Device.h" />
@@ -496,12 +496,14 @@
     <ClInclude Include="include\EngineUtilities\Memory\TWeakPointer.h" />
     <ClInclude Include="include\EngineUtilities\Utilities\Camera.h" />
     <ClInclude Include="include\EngineUtilities\Utilities\EditorViewportPass.h" />
+    <ClInclude Include="include\Rendering\DeferredRenderer.h" />
     <ClInclude Include="include\Rendering\ForwardRenderer.h" />
     <ClInclude Include="include\Rendering\ISceneRenderer.h" />
     <ClInclude Include="include\Rendering\ISceneRendererer.h" />
     <ClInclude Include="include\Rendering\Material.h" />
     <ClInclude Include="include\Rendering\MaterialInstance.h" />
     <ClInclude Include="include\Rendering\Mesh.h" />
+    <ClInclude Include="include\Rendering\RenderPipeline.h" />
     <ClInclude Include="include\Rendering\RenderScene.h" />
     <ClInclude Include="include\Rendering\RenderTypes.h" />
     <ClInclude Include="include\EngineUtilities\Utilities\EngineMath.h" />

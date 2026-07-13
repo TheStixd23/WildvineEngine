@@ -1,8 +1,3 @@
-/**
- * @file TWeakPointer.h
- * @brief Declara la API de TWeakPointer dentro del subsistema Memory.
- * @ingroup memory
- */
 /*
  * MIT License
  *
@@ -74,8 +69,8 @@ namespace
 		}
 
 		// Reset
-		void 
-		reset() {
+		void
+			reset() {
 			ptr = nullptr;
 			refCount = nullptr;
 		}
@@ -150,4 +145,3 @@ int main()
 }
 	*/
 }
-

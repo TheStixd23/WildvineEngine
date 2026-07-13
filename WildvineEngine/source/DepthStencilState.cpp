@@ -1,17 +1,12 @@
-/**
- * @file DepthStencilState.cpp
- * @brief Implementa la logica de DepthStencilState dentro del subsistema Core.
- * @ingroup core
- */
 #include "DepthStencilState.h"
 #include "Device.h"
 #include "DeviceContext.h"
 
 HRESULT
 DepthStencilState::init(Device& device,
-												bool depthEnable,
-												D3D11_DEPTH_WRITE_MASK writeMask,
-												D3D11_COMPARISON_FUNC depthFunc) {
+	bool depthEnable,
+	D3D11_DEPTH_WRITE_MASK writeMask,
+	D3D11_COMPARISON_FUNC depthFunc) {
 	if (!device.m_device) {
 		ERROR("ShaderProgram", "init", "Device is null.");
 		return E_POINTER;
@@ -60,5 +55,3 @@ void
 DepthStencilState::destroy() {
 	SAFE_RELEASE(m_depthStencilState);
 }
-
-

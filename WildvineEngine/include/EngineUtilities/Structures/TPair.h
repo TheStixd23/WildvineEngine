@@ -1,12 +1,7 @@
-/**
- * @file TPair.h
- * @brief Declara la API de TPair dentro del subsistema Structures.
- * @ingroup structures
- */
 /*
  * MIT License
  *
- * Copyright (c) 2024 Roberto Charreton
+ * Copyright (c) 2025 Roberto Charreton
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -150,5 +145,3 @@ namespace EU {
 	};
 
 }
-
-

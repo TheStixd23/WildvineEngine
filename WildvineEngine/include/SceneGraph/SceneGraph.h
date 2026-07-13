@@ -1,8 +1,3 @@
-/**
- * @file SceneGraph.h
- * @brief Declara la API de SceneGraph dentro del subsistema SceneGraph de WildvineEngine.
- * @ingroup scenegraph
- */
 #pragma once
 #include "Prerequisites.h"
 
@@ -13,126 +8,122 @@ class RenderScene;
 
 /**
  * @class SceneGraph
- * @brief Administra la jerarquía de entidades y su actualización espacial.
+ * @brief Gestiona la jerarquía espacial (relaciones Padre-Hijo) de las entidades del mundo.
  *
- * El `SceneGraph` actúa como el sistema central para registrar entidades, resolver
- * relaciones padre-hijo (jerarquías locales vs globales) y propagar transformaciones
- * espaciales (World Matrices) antes de empaquetar la información geométrica para
- * el pipeline de renderizado.
+ * El Grafo de Escena organiza las entidades de forma lógica y geométrica. Su función principal
+ * es propagar de forma recursiva las transformaciones (posición, rotación, escala) desde los nodos
+ * padres hacia los hijos y recopilar (`gatherRenderScene`) eficientemente los objetos visibles
+ * para el pipeline de renderizado.
  */
-class
-	SceneGraph {
+class SceneGraph {
 public:
-	/**
-	 * @brief Constructor por defecto.
-	 */
-	SceneGraph() = default;
+    /** @brief Constructor por defecto. */
+    SceneGraph() = default;
 
-	/**
-	 * @brief Destructor por defecto.
-	 */
-	~SceneGraph() = default;
+    /** @brief Destructor por defecto. */
+    ~SceneGraph() = default;
 
-	/**
-	 * @brief Inicializa las estructuras base del grafo de escena.
-	 */
-	void
-		init();
+    /**
+     * @brief Inicializa el grafo de escena y prepara las estructuras internas.
+     */
+    void init();
 
-	/**
-	 * @brief Registra una entidad independiente dentro del grafo.
-	 * @param e Puntero a la entidad a registrar.
-	 */
-	void
-		addEntity(Entity* e);
+    /**
+     * @brief Registra una nueva entidad huérfana (nodo raíz inicial) dentro del grafo de escena.
+     * @param e Puntero a la entidad a registrar.
+     */
+    void addEntity(Entity* e);
 
-	/**
-	 * @brief Elimina de manera segura una entidad del grafo si estaba registrada.
-	 * @param e Puntero a la entidad a retirar.
-	 */
-	void
-		removeEntity(Entity* e);
+    /**
+     * @brief Elimina una entidad del grafo, gestionando su desvinculación y la de sus hijos.
+     * @param e Puntero a la entidad a remover.
+     */
+    void removeEntity(Entity* e);
 
-	/**
-	 * @brief Comprueba recursivamente si un nodo es ascendiente de otro (para evitar ciclos).
-	 * @param possibleAncestor Nodo que se sospecha es padre, abuelo, etc.
-	 * @param node Nodo de referencia a evaluar.
-	 * @return true Si `possibleAncestor` está en la cadena jerárquica hacia la raíz de `node`.
-	 */
-	bool
-		isAncestor(Entity* possibleAncestor, Entity* node) const;
+    /**
+     * @brief Verifica si una entidad específica es ancestro (padre, abuelo, etc.) de otra en el árbol jerárquico.
+     * * Es vital para prevenir dependencias cíclicas antes de hacer un enlace.
+     * @param possibleAncestor Puntero al nodo que se sospecha que es el ancestro.
+     * @param node Puntero al nodo hijo/descendiente a evaluar.
+     * @return true Si `possibleAncestor` está en una jerarquía superior de `node`.
+     * @return false Si no hay relación directa de herencia superior.
+     */
+    bool isAncestor(Entity* possibleAncestor, Entity* node) const;
 
-	/**
-	 * @brief Vincula una entidad como hija de otra, estableciendo una relación local.
-	 * @param child Entidad que adoptará transformaciones relativas.
-	 * @param parent Entidad que actuará como sistema de coordenadas de origen.
-	 * @return true Si el enganche fue exitoso (no hubo ciclos de dependencia).
-	 */
-	bool
-		attach(Entity* child, Entity* parent);
+    /**
+     * @brief Enlaza una entidad como hija de otro nodo padre en el grafo.
+     * * Automáticamente calcula y ajusta las transformaciones locales de la entidad hija
+     * para mantener su coherencia visual en el espacio de mundo.
+     * @param child Puntero a la entidad que se convertirá en subordinada.
+     * @param parent Puntero a la entidad que actuará como contenedor/padre.
+     * @return true Si el enlace fue exitoso.
+     * @return false Si falló (e.g., si se detecta una herencia cíclica).
+     */
+    bool attach(Entity* child, Entity* parent);
 
-	/**
-	 * @brief Desvincula una entidad de su padre, volviéndola independiente (raíz local).
-	 * @param child Entidad a separar.
-	 * @return true Si la desvinculación se completó correctamente.
-	 */
-	bool
-		detach(Entity* child);
+    /**
+     * @brief Desvincula un nodo hijo de su padre actual, regresándolo a la raíz del grafo.
+     * @param child Puntero a la entidad que se desea independizar.
+     * @return true Si se logró desvincular con éxito.
+     * @return false Si la entidad no tenía un padre asignado o no pertenecía al grafo.
+     */
+    bool detach(Entity* child);
 
-	/**
-	 * @brief Recorre el grafo propagando transformaciones y actualizando lógica de componentes.
-	 * @param deltaTime Tiempo transcurrido en segundos desde la última llamada.
-	 * @param deviceContext Contexto del dispositivo para actualizaciones relacionadas con GPU.
-	 */
-	void
-		update(float deltaTime, DeviceContext& deviceContext);
+    /**
+     * @brief Actualiza la lógica de las entidades y procesa las matrices de transformación del mundo.
+     * * Llama internamente a `updateWorldRecursive` para calcular la posición global final de cada nodo.
+     * @param deltaTime Tiempo transcurrido desde el último frame (segundos).
+     * @param deviceContext Referencia al contexto gráfico (por si se requieren actualizaciones físicas directas).
+     */
+    void update(float deltaTime, DeviceContext& deviceContext);
 
-	/**
-	 * @brief Función de soporte para dibujar gizmos o visualizar la jerarquía en depuración.
-	 * @param deviceContext Contexto del dispositivo gráfico.
-	 */
-	void
-		render(DeviceContext& deviceContext);
+    /**
+     * @brief Ejecuta una pasada de renderizado directo sobre el grafo de la escena (si aplica).
+     * @param deviceContext Referencia al contexto de hardware de la API gráfica.
+     */
+    void render(DeviceContext& deviceContext);
 
-	/**
-	 * @brief Extrae los objetos renderizables del grafo y los clasifica en una `RenderScene`.
-	 * @param outScene Estructura que será poblada con mallas, luces y cámaras activas.
-	 * @param camera Cámara principal que se usa de referencia (ej. para calcular distancias o frustum culling).
-	 */
-	void
-		gatherRenderScene(RenderScene& outScene, const Camera& camera);
+    /**
+     * @brief Aplica frustum culling desde la perspectiva de una cámara y empaqueta los objetos visibles.
+     * * Recorre el grafo, evalúa qué entidades están en el campo de visión de la `camera`
+     * y llena las colas de renderizado en `outScene` para su posterior dibujado.
+     * @param outScene Estructura RenderScene de salida que recolectará los objetos y luces.
+     * @param camera Cámara que define la matriz de vista y el frustum de visibilidad.
+     */
+    void gatherRenderScene(RenderScene& outScene, const Camera& camera);
 
-	/**
-	 * @brief Limpia la jerarquía y vacía todas las referencias a entidades.
-	 */
-	void
-		destroy();
+    /**
+     * @brief Destruye el grafo, desvinculando todas las referencias de entidades y limpiando la memoria.
+     */
+    void destroy();
 
 private:
-	/**
-	 * @brief Propaga matemáticamente la matriz acumulada a través de la jerarquía descendente.
-	 * @param node Nodo actual a actualizar.
-	 * @param parentWorld Matriz combinada proveniente de su antecesor inmediato.
-	 */
-	void
-		updateWorldRecursive(Entity* node, const XMMATRIX& parentWorld);
+    /**
+     * @brief Método interno recursivo que computa la matriz de mundo real de un nodo multiplicándola por la de su padre.
+     * * Resuelve la ecuación: $World_{Hijo} = Local_{Hijo} \times World_{Padre}$
+     * @param node Nodo actual que se está procesando.
+     * @param parentWorld Matriz global acumulada del padre.
+     */
+    void updateWorldRecursive(Entity* node, const XMMATRIX& parentWorld);
 
-	/**
-	 * @brief Verifica si una entidad está en el nivel superior (sin padre).
-	 * @param e Entidad a evaluar.
-	 * @return true Si la entidad no tiene antecesores.
-	 */
-	bool
-		isRoot(Entity* e) const;
+    /**
+     * @brief Comprueba si una entidad es un nodo raíz (no posee ningún padre asignado).
+     * @param e Puntero a la entidad evaluada.
+     */
+    bool isRoot(Entity* e) const;
 
-	/**
-	 * @brief Verifica si el grafo de escena tiene conocimiento o control de la entidad dada.
-	 * @param e Entidad a evaluar.
-	 * @return true Si la entidad pertenece a `m_entities`.
-	 */
-	bool
-		isRegistered(Entity* e) const;
+    /**
+     * @brief Verifica si una entidad ya se encuentra registrada en el contenedor del grafo.
+     * @param e Puntero a la entidad evaluada.
+     */
+    bool isRegistered(Entity* e) const;
+
+private:
+    // std::vector<EU::TSharedPointer<Entity>> m_entities; ///< Código comentado: Futura migración a Smart Pointers.
 
 public:
-	std::vector<Entity*> m_entities; ///< Colección lineal de todas las entidades registradas y gestionadas por este grafo.
+    /** * @brief Vector con todas las entidades registradas en el grafo.
+     * @todo Se recomienda pasar a 'private' en el futuro para evitar modificaciones externas no controladas del árbol.
+     */
+    std::vector<Entity*> m_entities;
 };

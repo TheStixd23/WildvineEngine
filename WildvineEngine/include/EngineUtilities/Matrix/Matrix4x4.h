@@ -1,8 +1,3 @@
-/**
- * @file Matrix4x4.h
- * @brief Declara la API de Matrix4x4 dentro del subsistema Math.
- * @ingroup math
- */
 /*
  * MIT License
  *
@@ -255,4 +250,3 @@ namespace EU {
 
   };
 }
-

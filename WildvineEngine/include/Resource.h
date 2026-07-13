@@ -1,11 +1,6 @@
-/**
- * @file Resource.h
- * @brief Declara la API de Resource dentro del subsistema Core.
- * @ingroup core
- */
 //{{NO_DEPENDENCIES}}
 // Microsoft Visual C++ generated include file.
-// Used by WildvineEngine.rc
+// Used by MinerEngine.rc
 //
 
 #define IDS_APP_TITLE           103
@@ -32,5 +27,3 @@
 #define _APS_NEXT_SYMED_VALUE       110
 #endif
 #endif
-
-

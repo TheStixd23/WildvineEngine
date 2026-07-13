@@ -1,6 +1,6 @@
-/**
+Ôªø/**
  * @file MaterialInstance.h
- * @brief Declara la API de MaterialInstance dentro del subsistema Rendering de WildvineEngine.
+ * @brief Declara la API de MaterialInstance dentro del subsistema Rendering.
  * @ingroup rendering
  */
 #pragma once
@@ -13,123 +13,112 @@ class Texture;
 
 /**
  * @class MaterialInstance
- * @brief Agrupa un material base con sus texturas y parametros concretos.
+ * @brief Agrupa un material base con sus texturas y par√°metros concretos.
  *
- * Esta clase permite reutilizar un mismo `Material` con diferentes mapas de texturas
- * y parametros PBR por objeto renderizado.
+ * Esta clase implementa el patr√≥n de instanciaci√≥n de materiales. Permite reutilizar
+ * un mismo 'Material' (que comparte shaders y estados de la GPU) con diferentes
+ * mapas de texturas PBR (Physically Based Rendering) y par√°metros num√©ricos por cada objeto.
  */
-class
-	MaterialInstance {
+class MaterialInstance {
 public:
-	/**
-	 * @brief Asigna el material base a esta instancia.
-	 * @param material Puntero al material base.
-	 */
-	void setMaterial(Material* material) { m_material = material; }
+    /** @name Setters (Configuraci√≥n de Recursos) */
+    ///@{
 
-	/**
-	 * @brief Asigna la textura de color base (Albedo).
-	 * @param texture Puntero a la textura de Albedo.
-	 */
-	void setAlbedo(Texture* texture) { m_albedo = texture; }
+    /**
+     * @brief Asigna el material base del cual heredar√° los shaders y estados de renderizado.
+     * @param material Puntero al Material base.
+     */
+    void setMaterial(Material* material) { m_material = material; }
 
-	/**
-	 * @brief Asigna la textura de mapa de normales.
-	 * @param texture Puntero a la textura de normales.
-	 */
-	void setNormal(Texture* texture) { m_normal = texture; }
+    /**
+     * @brief Asigna el mapa de Albedo (Color base / Difuso).
+     * @param texture Puntero a la textura de color.
+     */
+    void setAlbedo(Texture* texture) { m_albedo = texture; }
 
-	/**
-	 * @brief Asigna la textura de metalicidad.
-	 * @param texture Puntero a la textura met·lica.
-	 */
-	void setMetallic(Texture* texture) { m_metallic = texture; }
+    /**
+     * @brief Asigna el mapa de Normales (Detalle de relieve en la superficie).
+     * @param texture Puntero a la textura de normales (Normal Map).
+     */
+    void setNormal(Texture* texture) { m_normal = texture; }
 
-	/**
-	 * @brief Asigna la textura de rugosidad (Roughness).
-	 * @param texture Puntero a la textura de rugosidad.
-	 */
-	void setRoughness(Texture* texture) { m_roughness = texture; }
+    /**
+     * @brief Asigna el mapa de Metalicidad (Propiedades met√°licas del material).
+     * @param texture Puntero a la textura de escala de grises para metalicidad.
+     */
+    void setMetallic(Texture* texture) { m_metallic = texture; }
 
-	/**
-	 * @brief Asigna la textura de oclusiÛn ambiental (AO).
-	 * @param texture Puntero a la textura de AO.
-	 */
-	void setAO(Texture* texture) { m_ao = texture; }
+    /**
+     * @brief Asigna el mapa de Rugosidad / Microfacetas (Roughness).
+     * @param texture Puntero a la textura de escala de grises para rugosidad.
+     */
+    void setRoughness(Texture* texture) { m_roughness = texture; }
 
-	/**
-	 * @brief Asigna la textura de emisiÛn de luz.
-	 * @param texture Puntero a la textura emisiva.
-	 */
-	void setEmissive(Texture* texture) { m_emissive = texture; }
+    /**
+     * @brief Asigna el mapa de Oclusi√≥n Ambiental (Ambient Occlusion).
+     * @param texture Puntero a la textura de sombreado est√°tico por contacto.
+     */
+    void setAO(Texture* texture) { m_ao = texture; }
 
-	/**
-	 * @brief Obtiene el material base asociado.
-	 * @return Material* Puntero al material.
-	 */
-	Material* getMaterial() const { return m_material; }
+    /**
+     * @brief Asigna el mapa de Emisi√≥n (Luz propia que emite el material).
+     * @param texture Puntero a la textura de emisi√≥n de color.
+     */
+    void setEmissive(Texture* texture) { m_emissive = texture; }
+    ///@}
 
-	/**
-	 * @brief Obtiene la textura de color base (Albedo).
-	 * @return Texture* Puntero a la textura de Albedo.
-	 */
-	Texture* getAlbedo() const { return m_albedo; }
+    /** @name Getters (Consulta de Recursos y Par√°metros) */
+    ///@{
 
-	/**
-	 * @brief Obtiene la textura de normales.
-	 * @return Texture* Puntero a la textura de normales.
-	 */
-	Texture* getNormal() const { return m_normal; }
+    /** @return Material* Puntero al material maestro base. */
+    Material* getMaterial() const { return m_material; }
 
-	/**
-	 * @brief Obtiene la textura de metalicidad.
-	 * @return Texture* Puntero a la textura met·lica.
-	 */
-	Texture* getMetallic() const { return m_metallic; }
+    /** @return Texture* Puntero a la textura de Albedo activa. */
+    Texture* getAlbedo() const { return m_albedo; }
 
-	/**
-	 * @brief Obtiene la textura de rugosidad (Roughness).
-	 * @return Texture* Puntero a la textura de rugosidad.
-	 */
-	Texture* getRoughness() const { return m_roughness; }
+    /** @return Texture* Puntero al mapa de normales activo. */
+    Texture* getNormal() const { return m_normal; }
 
-	/**
-	 * @brief Obtiene la textura de oclusiÛn ambiental (AO).
-	 * @return Texture* Puntero a la textura de AO.
-	 */
-	Texture* getAO() const { return m_ao; }
+    /** @return Texture* Puntero al mapa de metalicidad activo. */
+    Texture* getMetallic() const { return m_metallic; }
 
-	/**
-	 * @brief Obtiene la textura emisiva.
-	 * @return Texture* Puntero a la textura emisiva.
-	 */
-	Texture* getEmissive() const { return m_emissive; }
+    /** @return Texture* Puntero al mapa de rugosidad activo. */
+    Texture* getRoughness() const { return m_roughness; }
 
-	/**
-	 * @brief Obtiene una referencia modificable a los par·metros numÈricos del material.
-	 * @return MaterialParams& Referencia a la estructura de par·metros PBR.
-	 */
-	MaterialParams& getParams() { return m_params; }
+    /** @return Texture* Puntero al mapa de oclusi√≥n ambiental activo. */
+    Texture* getAO() const { return m_ao; }
 
-	/**
-	 * @brief Obtiene una referencia de solo lectura a los par·metros numÈricos del material.
-	 * @return const MaterialParams& Referencia constante a la estructura de par·metros PBR.
-	 */
-	const MaterialParams& getParams() const { return m_params; }
+    /** @return Texture* Puntero al mapa de emisi√≥n activo. */
+    Texture* getEmissive() const { return m_emissive; }
 
-	/**
-	 * @brief Enlaza las texturas de la instancia en el contexto grafico actual.
-	 * @param deviceContext Contexto del dispositivo gr·fico usado para emitir los comandos de enlace.
-	 */
-	void bindTextures(DeviceContext& deviceContext) const;
+    /**
+     * @brief Obtiene una referencia modificable a los par√°metros num√©ricos del material.
+     * @return MaterialParams& Referencia a la estructura de par√°metros PBR.
+     */
+    MaterialParams& getParams() { return m_params; }
+
+    /**
+     * @brief Obtiene una referencia de solo lectura a los par√°metros num√©ricos del material.
+     * @return const MaterialParams& Referencia constante a la estructura de par√°metros PBR.
+     */
+    const MaterialParams& getParams() const { return m_params; }
+    ///@}
+
+    /**
+     * @brief Enlaza las texturas de la instancia en el contexto gr√°fico actual.
+     * * Este m√©todo se invoca antes de la llamada de dibujo (Draw Call) para enviar las
+     * texturas asignadas a los *slots* correspondientes de la GPU a trav√©s del pipeline.
+     * * @param deviceContext Referencia al contexto de la API gr√°fica (e.g., DirectX/Vulkan).
+     */
+    void bindTextures(DeviceContext& deviceContext) const;
 
 private:
-	Material* m_material = nullptr;      ///< Puntero al material base compartido.
-	Texture* m_albedo = nullptr;         ///< Textura de color base (Albedo).
-	Texture* m_normal = nullptr;         ///< Textura de normales.
-	Texture* m_metallic = nullptr;       ///< Textura de metalicidad.
-	Texture* m_roughness = nullptr;      ///< Textura de rugosidad (Roughness).
-	Texture* m_ao = nullptr;             ///< Textura de oclusiÛn ambiental (Ambient Occlusion).
-	Texture* m_emissive = nullptr;       ///< Textura emisiva.
-	MaterialParams m_params;             ///< Par·metros numÈricos especÌficos de esta instancia.
+    Material* m_material = nullptr;      ///< Material base (Shaders y Pipeline States).
+    Texture* m_albedo = nullptr;        ///< Textura de color base (RGB).
+    Texture* m_normal = nullptr;        ///< Mapa de normales del espacio de tangente (RGB).
+    Texture* m_metallic = nullptr;      ///< Mapa de metalicidad (Escala de grises).
+    Texture* m_roughness = nullptr;     ///< Mapa de rugosidad (Escala de grises).
+    Texture* m_ao = nullptr;            ///< Mapa de oclusi√≥n ambiental (Escala de grises).
+    Texture* m_emissive = nullptr;      ///< Mapa de auto-iluminaci√≥n (RGB).
+    MaterialParams m_params;            ///< Contenedor de propiedades num√©ricas del material (e.g., escalares, vectores).
 };

@@ -1,8 +1,3 @@
-/**
- * @file Matrix3x3.h
- * @brief Declara la API de Matrix3x3 dentro del subsistema Math.
- * @ingroup math
- */
 /*
  * MIT License
  *
@@ -171,4 +166,3 @@ namespace EU {
     }
   };
 }
-

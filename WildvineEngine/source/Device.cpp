@@ -1,8 +1,3 @@
-/**
- * @file Device.cpp
- * @brief Implementa la logica de Device dentro del subsistema Core.
- * @ingroup core
- */
 #include "Device.h"
 void
 Device::destroy() {
@@ -253,4 +248,3 @@ Device::CreateBuffer(const D3D11_BUFFER_DESC* pDesc,
 	}
 	return hr;
 }
-

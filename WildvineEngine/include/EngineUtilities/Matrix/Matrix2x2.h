@@ -1,8 +1,3 @@
-/**
- * @file Matrix2x2.h
- * @brief Declara la API de Matrix2x2 dentro del subsistema Math.
- * @ingroup math
- */
 /*
  * MIT License
  *
@@ -31,8 +26,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
 */
-#pragma once
-namespace EU {
+#pragma EU
+namespace EngineUtilities {
   /**
  * @brief A 2x2 matrix class.
  *
@@ -148,5 +143,3 @@ namespace EU {
     }
   };
 }
-
-

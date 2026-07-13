@@ -1,8 +1,3 @@
-/**
- * @file RasterizerState.cpp
- * @brief Implementa la logica de RasterizerState dentro del subsistema Core.
- * @ingroup core
- */
 #include "RasterizerState.h"
 #include "Device.h"
 #include "DeviceContext.h"
@@ -30,12 +25,12 @@ RasterizerState::init(Device device) {
 	return hr;
 }
 
-HRESULT 
+HRESULT
 RasterizerState::init(Device& device,
-                      D3D11_FILL_MODE fill,
-                      D3D11_CULL_MODE cull,
-                      bool frontCCW,
-                      bool depthClip) {
+	D3D11_FILL_MODE fill,
+	D3D11_CULL_MODE cull,
+	bool frontCCW,
+	bool depthClip) {
 	D3D11_RASTERIZER_DESC desc{};
 	desc.FillMode = fill;
 	desc.CullMode = cull;
@@ -69,4 +64,3 @@ void
 RasterizerState::destroy() {
 	SAFE_RELEASE(m_rasterizerState);
 }
-

@@ -1,8 +1,3 @@
-/**
- * @file Skybox.cpp
- * @brief Implementa la logica de Skybox dentro del subsistema Utilities.
- * @ingroup utilities
- */
 #include "EngineUtilities/Utilities/Skybox.h"
 #include "Device.h"
 #include "DeviceContext.h"
@@ -95,8 +90,8 @@ Skybox::init(Device& device, DeviceContext* deviceContext, Texture& cubemap) {
 
 	// Init DepthStencilState
 	hr = m_depthStencilState.init(device, true,
-															  D3D11_DEPTH_WRITE_MASK_ZERO,
-															  D3D11_COMPARISON_LESS_EQUAL);
+		D3D11_DEPTH_WRITE_MASK_ZERO,
+		D3D11_COMPARISON_LESS_EQUAL);
 	if (FAILED(hr)) {
 		ERROR("Skybox", "init", "Failed to create new DepthStencilState");
 	}
@@ -141,5 +136,3 @@ Skybox::render(DeviceContext& deviceContext) {
 	// 5) Unbind t10
 	deviceContext.m_deviceContext->PSSetShaderResources(0, 1, nullSRV);
 }
-
-

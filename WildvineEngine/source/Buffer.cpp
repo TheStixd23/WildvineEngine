@@ -1,8 +1,3 @@
-/**
- * @file Buffer.cpp
- * @brief Implementa la logica de Buffer dentro del subsistema Core.
- * @ingroup core
- */
 #include "Buffer.h"
 #include "Device.h"
 #include "DeviceContext.h"
@@ -153,4 +148,3 @@ Buffer::createBuffer(Device& device,
 	}
 	return S_OK;
 }
-
