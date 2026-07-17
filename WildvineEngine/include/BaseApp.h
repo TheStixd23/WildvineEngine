@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "Prerequisites.h"
 #include "Window.h"
 #include "Device.h"
@@ -34,19 +34,57 @@
 extern IMGUI_IMPL_API
 LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+enum class ActorClipboardKind {
+	Empty = 0,
+	Model,
+	Light
+};
+
 struct ActorClipboard {
+	ActorClipboardKind kind = ActorClipboardKind::Empty;
+	EU::TSharedPointer<Actor> sourceActor;
+	EU::TSharedPointer<Actor> sourceParent;
 	std::string name;
 	std::string modelPath;
 	EU::Vector3 position;
 	EU::Vector3 rotation;
-	EU::Vector3 scale;
+	EU::Vector3 scale = EU::Vector3(1.0f, 1.0f, 1.0f);
+	LightData lightData{};
+	bool actorActive = true;
+	bool visible = true;
+	bool castShadow = true;
+	bool receiveShadow = true;
+	bool selectable = true;
+	bool followLightPosition = true;
+	bool followLightDirection = false;
+};
+
+struct LoadedMaterialResources {
+	std::string name;
+	MaterialInstance materialInstance;
+	Texture albedo;
+	Texture normal;
+	Texture metallic;
+	Texture roughness;
+	Texture ao;
+	Texture emissive;
+
+	void destroy() {
+		albedo.destroy();
+		normal.destroy();
+		metallic.destroy();
+		roughness.destroy();
+		ao.destroy();
+		emissive.destroy();
+	}
 };
 
 struct LoadedModel {
 	Mesh mesh;
 	Material material;
 	MaterialInstance materialInstance;
-	Texture albedo, normal, metallic, roughness, ao;
+	Texture albedo, normal, metallic, roughness, ao, emissive;
+	std::vector<std::unique_ptr<LoadedMaterialResources>> importedMaterials;
 	EU::Vector3 localMin;
 	EU::Vector3 localMax;
 
@@ -92,14 +130,34 @@ public:
 
 	void handleEditorViewportResize();
 
+	bool newScene();
 	bool saveScene(const std::string& path);
 	bool loadScene(const std::string& path);
 	std::string getDefaultScenePath() const;
 
 	void addActorToScene(const EU::TSharedPointer<Actor>& actor);
 	void removeActorFromScene(const EU::TSharedPointer<Actor>& actor);
+	bool reparentActor(
+		const EU::TSharedPointer<Actor>& child,
+		const EU::TSharedPointer<Actor>& parent,
+		bool keepWorldTransform = true);
 
 private:
+	bool saveSceneInternal(const std::string& path, bool updateEditorState);
+	bool loadSceneInternal(const std::string& path, bool recoveredAutosave);
+	void clearCurrentScene();
+	void createDefaultSceneLight();
+	bool showOpenSceneDialog(std::string& outPath) const;
+	bool showSaveSceneDialog(std::string& outPath) const;
+	std::string getExecutableDirectory() const;
+	std::string getAutosaveScenePath() const;
+	std::string getSceneDisplayName() const;
+	void deleteAutosaveFile();
+	void updateSceneDirtyState();
+	unsigned long long computeSceneSignature() const;
+	bool fileExists(const std::string& path) const;
+	bool ensureSceneDirectories() const;
+
 	static LRESULT CALLBACK
 		WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
@@ -142,6 +200,12 @@ private:
 	EU::Vector3 m_carModelLocalMin;
 	EU::Vector3 m_carModelLocalMax;
 	void pickActorFromMouse();
+	bool getViewportRay(const ImVec2& screenPosition,
+		XMFLOAT3& outOrigin,
+		XMFLOAT3& outDirection) const;
+	bool getViewportPlacementPosition(const ImVec2& screenPosition,
+		const EU::Vector3& localMinimum,
+		EU::Vector3& outPosition) const;
 
 
 	CommandManager m_commands;
@@ -164,6 +228,29 @@ private:
 		const EU::Vector3& rot,
 		const EU::Vector3& scale);
 
+	EU::TSharedPointer<Actor> spawnLightActor(
+		LightType type,
+		const std::string& name,
+		const EU::Vector3& position,
+		const EU::Vector3& color,
+		float intensity,
+		float range,
+		bool castShadow);
+
+	void createStudioLightRig();
+	void aimLightAtActor(
+		const EU::TSharedPointer<Actor>& lightActor,
+		const EU::TSharedPointer<Actor>& targetActor);
+	EU::TSharedPointer<Actor> getSelectedActor() const;
+	EU::TSharedPointer<Actor> findActorShared(Actor* actor) const;
+	std::string makeUniqueActorName(
+		const std::string& requestedName,
+		const Actor* ignoredActor = nullptr) const;
+	EU::TSharedPointer<Actor> cloneActor(
+		const EU::TSharedPointer<Actor>& source,
+		const std::string& newName,
+		const EU::Vector3& newPosition);
+
 	const std::vector<MeshComponent>* getActorCpuMeshes(
 		const EU::TSharedPointer<Actor>& actor) const;
 
@@ -182,7 +269,10 @@ private:
 	std::vector<AssetThumb> m_thumbnails;
 
 	EU::TSharedPointer<Actor> loadModelActor(const std::string& modelPath);
-	void loadModelTextures(LoadedModel& lm, const std::string& folder);
+	void loadModelTextures(
+		LoadedModel& loadedModel,
+		const Model3D& importedModel,
+		const std::string& modelPath);
 	void buildTextureThumbnails();
 
 	bool getActorAABB(const EU::TSharedPointer<Actor>& actor, EU::Vector3& outMin, EU::Vector3& outMax);
@@ -207,11 +297,20 @@ private:
 	EU::TSharedPointer<Actor> m_car01;
 	EU::TSharedPointer<Actor> m_car02;
 	EU::TSharedPointer<Actor> m_directionalLightActor;
+	EU::TSharedPointer<Actor> m_lastSelectedRenderableActor;
+	unsigned int m_lightNameCounter = 1;
 
 	Model3D* m_carModel = nullptr;
 
 	GUI m_gui;
 	bool m_guiInitialized = false;
+
+	std::string m_currentScenePath;
+	bool m_sceneDirty = false;
+	unsigned long long m_savedSceneSignature = 0ull;
+	float m_autosaveTimer = 0.0f;
+	bool m_recoveryAvailable = false;
+	float m_autosaveIntervalSeconds = 30.0f;
 	EU::Vector3 m_cameraPos;
 
 	Skybox m_skybox;

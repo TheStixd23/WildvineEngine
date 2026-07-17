@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file DeferredRenderer.h
  * @brief Declara la API de DeferredRenderer dentro del subsistema Rendering.
  * @ingroup rendering
@@ -76,6 +76,7 @@ public:
 
 private:
 	void buildQueues(RenderScene& scene, const Camera& camera);
+	void buildLightQueue(const RenderScene& scene);
 	void updatePerFrame(const Camera& camera, const RenderScene& scene, DeviceContext& deviceContext);
 	void updateLightMatrices(const Camera& camera, const RenderScene& scene);
 	void renderSceneToTarget(DeviceContext& deviceContext, RenderScene& scene, EditorViewportPass& targetPass, bool applyShadows);
@@ -169,4 +170,7 @@ private:
 
 	std::vector<const RenderObject*> m_opaqueQueue;
 	std::vector<const RenderObject*> m_transparentQueue;
+	std::vector<const LightData*> m_lightQueue;
+	const LightData* m_primaryShadowLight = nullptr;
+	bool m_hasValidShadowLight = false;
 };

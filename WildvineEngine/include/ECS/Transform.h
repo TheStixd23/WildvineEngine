@@ -3,99 +3,231 @@
 #include "EngineUtilities/Vectors/Vector3.h"
 #include "Component.h"
 
-class
-    Transform : public Component {
+class Transform : public Component {
 public:
-    // Constructor que inicializa posición, rotación y escala por defecto
-    Transform() : position(),
-        rotation(),
-        scale(),
-        matrix(),
-        worldMatrix(),
-        Component(ComponentType::TRANSFORM) {
+    Transform()
+        : Component(ComponentType::TRANSFORM),
+          position(0.0f, 0.0f, 0.0f),
+          rotation(0.0f, 0.0f, 0.0f),
+          scale(1.0f, 1.0f, 1.0f),
+          matrix(XMMatrixIdentity()),
+          worldMatrix(XMMatrixIdentity()),
+          m_dirty(true) {
     }
 
-    // Métodos para inicialización, actualización, renderizado y destrucción
-    // Inicializa el objeto Transform
-    void
-        init() {
+    void init() override {
+        position.zero();
+        rotation.zero();
         scale.one();
         matrix = XMMatrixIdentity();
         worldMatrix = XMMatrixIdentity();
+        m_dirty = true;
     }
 
-    // Actualiza el estado del objeto Transform basado en el tiempo transcurrido
-    // @param deltaTime: Tiempo transcurrido desde la última actualización
-    void
-        update(float deltaTime) override {
-        // Aplicar escala
-        XMMATRIX scaleMatrix = XMMatrixScaling(scale.x, scale.y, scale.z);
-        // Aplicar rotacion
-        XMMATRIX rotationMatrix = XMMatrixRotationRollPitchYaw(rotation.x, rotation.y, rotation.z);
-        // Aplicar traslacion
-        XMMATRIX translationMatrix = XMMatrixTranslation(position.x, position.y, position.z);
+    void update(float deltaTime) override {
+        (void)deltaTime;
+        rebuildLocalMatrix();
+    }
 
-        // Componer la matriz final en el orden: scale -> rotation -> translation
+    void render(DeviceContext& deviceContext) override {
+        (void)deviceContext;
+    }
+
+    void destroy() override {}
+
+    const EU::Vector3& getPosition() const { return position; }
+    const EU::Vector3& getRotation() const { return rotation; }
+    const EU::Vector3& getScale() const { return scale; }
+
+    EU::Vector3 getWorldPosition() const {
+        XMFLOAT4X4 values{};
+        XMStoreFloat4x4(&values, worldMatrix);
+        return EU::Vector3(values._41, values._42, values._43);
+    }
+
+    void setPosition(const EU::Vector3& newPosition) {
+        position = newPosition;
+        markDirty();
+    }
+
+    void setRotation(const EU::Vector3& newRotation) {
+        rotation = newRotation;
+        markDirty();
+    }
+
+    void setScale(const EU::Vector3& newScale) {
+        scale = sanitizeScale(newScale);
+        markDirty();
+    }
+
+    void setTransform(const EU::Vector3& newPosition,
+        const EU::Vector3& newRotation,
+        const EU::Vector3& newScale) {
+        position = newPosition;
+        rotation = newRotation;
+        scale = sanitizeScale(newScale);
+        markDirty();
+    }
+
+    /**
+     * @brief Reemplaza la transformacion local usando una matriz ya calculada.
+     *
+     * Se utiliza al reparentar entidades para conservar su posicion visual.
+     * La matriz se descompone en escala, rotacion y traslacion para que el
+     * inspector y el gizmo sigan mostrando valores editables.
+     */
+    bool setFromLocalMatrix(const XMMATRIX& localMatrix) {
+        XMVECTOR scaleVector = XMVectorZero();
+        XMVECTOR rotationQuaternion = XMQuaternionIdentity();
+        XMVECTOR translationVector = XMVectorZero();
+
+        if (!XMMatrixDecompose(
+            &scaleVector,
+            &rotationQuaternion,
+            &translationVector,
+            localMatrix)) {
+            return false;
+        }
+
+        XMFLOAT3 scaleValues{};
+        XMFLOAT3 translationValues{};
+        XMStoreFloat3(&scaleValues, scaleVector);
+        XMStoreFloat3(&translationValues, translationVector);
+
+        const XMMATRIX rotationMatrix =
+            XMMatrixRotationQuaternion(rotationQuaternion);
+        XMFLOAT4X4 rotationValues{};
+        XMStoreFloat4x4(&rotationValues, rotationMatrix);
+
+        float pitchSine = -rotationValues._32;
+        if (pitchSine > 1.0f) pitchSine = 1.0f;
+        if (pitchSine < -1.0f) pitchSine = -1.0f;
+
+        const float pitch = asinf(pitchSine);
+        const float pitchCosine = cosf(pitch);
+
+        float yaw = 0.0f;
+        float roll = 0.0f;
+
+        if (fabsf(pitchCosine) > 0.00001f) {
+            roll = atan2f(rotationValues._12, rotationValues._22);
+            yaw = atan2f(rotationValues._31, rotationValues._33);
+        }
+        else {
+            // En bloqueo de cardan se fija roll en cero y se conserva la
+            // orientacion restante dentro de yaw.
+            yaw = atan2f(-rotationValues._13, rotationValues._11);
+            roll = 0.0f;
+        }
+
+        position = EU::Vector3(
+            translationValues.x,
+            translationValues.y,
+            translationValues.z);
+        rotation = EU::Vector3(pitch, yaw, roll);
+        scale = sanitizeScale(EU::Vector3(
+            scaleValues.x,
+            scaleValues.y,
+            scaleValues.z));
+
+        matrix = localMatrix;
+        m_dirty = false;
+        return true;
+    }
+
+    void translate(const EU::Vector3& translation) {
+        position += translation;
+        markDirty();
+    }
+
+    void rotate(const EU::Vector3& rotationDelta) {
+        rotation += rotationDelta;
+        markDirty();
+    }
+
+    void scaleBy(const EU::Vector3& scaleMultiplier) {
+        scale.x *= scaleMultiplier.x;
+        scale.y *= scaleMultiplier.y;
+        scale.z *= scaleMultiplier.z;
+        scale = sanitizeScale(scale);
+        markDirty();
+    }
+
+    void reset() {
+        position.zero();
+        rotation.zero();
+        scale.one();
+        markDirty();
+    }
+
+    void markDirty() { m_dirty = true; }
+    bool isDirty() const { return m_dirty; }
+
+    void rebuildLocalMatrix() {
+        if (!m_dirty) {
+            return;
+        }
+
+        const XMMATRIX scaleMatrix = XMMatrixScaling(scale.x, scale.y, scale.z);
+        const XMMATRIX rotationMatrix = XMMatrixRotationRollPitchYaw(
+            rotation.x, rotation.y, rotation.z);
+        const XMMATRIX translationMatrix = XMMatrixTranslation(
+            position.x, position.y, position.z);
+
         matrix = scaleMatrix * rotationMatrix * translationMatrix;
-        worldMatrix = matrix;
+        m_dirty = false;
     }
 
-    // Renderiza el objeto Transform
-    // @param deviceContext: Contexto del dispositivo de renderizado
-    void
-        render(DeviceContext& deviceContext) override {}
-
-    // Destruye el objeto Transform y libera recursos
-    void
-        destroy() {}
-
-    // Métodos de acceso a los datos de posición
-    // Retorna la posición actual
-    const EU::Vector3&
-        getPosition() const { return position; }
-
-    // Establece una nueva posición
-    void
-        setPosition(const EU::Vector3& newPos) { position = newPos; }
-
-    // Métodos de acceso a los datos de rotación
-    // Retorna la rotación actual
-    const EU::Vector3&
-        getRotation() const { return rotation; }
-
-    // Establece una nueva rotación
-    void
-        setRotation(const EU::Vector3& newRot) { rotation = newRot; }
-
-    // Métodos de acceso a los datos de escala
-    // Retorna la escala actual
-    const EU::Vector3&
-        getScale() const { return scale; }
-
-    // Establece una nueva escala
-    void
-        setScale(const EU::Vector3& newScale) { scale = newScale; }
-
-    void
-        setTransform(const EU::Vector3& newPos,
-            const EU::Vector3& newRot,
-            const EU::Vector3& newSca) {
-        position = newPos;
-        rotation = newRot;
-        scale = newSca;
+    EU::Vector3 getForwardVector() const {
+        return transformDirection(EU::Vector3(0.0f, 0.0f, 1.0f));
     }
 
-    // Método para trasladar la posición del objeto
-    // @param translation: Vector que representa la cantidad de traslado en cada eje
-    void
-        translate(const EU::Vector3& translation);
+    EU::Vector3 getRightVector() const {
+        return transformDirection(EU::Vector3(1.0f, 0.0f, 0.0f));
+    }
+
+    EU::Vector3 getUpVector() const {
+        return transformDirection(EU::Vector3(0.0f, 1.0f, 0.0f));
+    }
+
+    XMMATRIX matrix;
+    XMMATRIX worldMatrix;
 
 private:
-    EU::Vector3 position;  // Posición del objeto
-    EU::Vector3 rotation;  // Rotación del objeto
-    EU::Vector3 scale;     // Escala del objeto
+    static EU::Vector3 sanitizeScale(const EU::Vector3& value) {
+        const float minimumScale = 0.0001f;
+        EU::Vector3 result = value;
 
-public:
-    XMMATRIX matrix;    // Matriz de transformación local
-    XMMATRIX worldMatrix; // Matriz de transformación world
+        if (EU::abs(result.x) < minimumScale) {
+            result.x = result.x < 0.0f ? -minimumScale : minimumScale;
+        }
+        if (EU::abs(result.y) < minimumScale) {
+            result.y = result.y < 0.0f ? -minimumScale : minimumScale;
+        }
+        if (EU::abs(result.z) < minimumScale) {
+            result.z = result.z < 0.0f ? -minimumScale : minimumScale;
+        }
+
+        return result;
+    }
+
+    EU::Vector3 transformDirection(const EU::Vector3& localDirection) const {
+        const XMMATRIX rotationMatrix = XMMatrixRotationRollPitchYaw(
+            rotation.x, rotation.y, rotation.z);
+        const XMVECTOR direction = XMVector3TransformNormal(
+            XMVectorSet(localDirection.x, localDirection.y, localDirection.z, 0.0f),
+            rotationMatrix);
+        const XMVECTOR normalized = XMVector3Normalize(direction);
+
+        return EU::Vector3(
+            XMVectorGetX(normalized),
+            XMVectorGetY(normalized),
+            XMVectorGetZ(normalized));
+    }
+
+private:
+    EU::Vector3 position;
+    EU::Vector3 rotation;
+    EU::Vector3 scale;
+    bool m_dirty;
 };

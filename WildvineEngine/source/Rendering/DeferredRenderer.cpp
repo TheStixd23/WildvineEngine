@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file DeferredRenderer.cpp
  * @brief Implementa la logica de DeferredRenderer dentro del subsistema Rendering.
  * @ingroup rendering
@@ -48,25 +48,93 @@ namespace {
 		return access->m_renderTargetView;
 	}
 
-	const LightData*
-		findPrimaryShadowLight(const RenderScene& scene) {
-		for (const LightData& light : scene.directionalLights) {
-			if (light.type == LightType::Directional) {
-				return &light;
-			}
+	bool
+		isSupportedShadowLight(const LightData& light) {
+		return light.type == LightType::Directional ||
+			light.type == LightType::Spot;
+	}
+
+	EU::Vector3
+		safeNormalizedDirection(const EU::Vector3& direction) {
+		const EU::Vector3 normalized = direction.normalize();
+		return normalized.isNearlyZero()
+			? EU::Vector3(0.0f, -1.0f, 0.0f)
+			: normalized;
+	}
+
+	float
+		lightRenderPriority(const LightData& light) {
+		float priority = (std::max)(0.0f, light.intensity);
+
+		if (light.castShadow && isSupportedShadowLight(light)) {
+			priority += 10000.0f;
 		}
 
-		return scene.directionalLights.empty() ? nullptr : &scene.directionalLights.front();
+		switch (light.type) {
+		case LightType::Directional:
+			priority += 1000.0f;
+			break;
+		case LightType::Spot:
+			priority += 500.0f;
+			break;
+		case LightType::Point:
+		default:
+			priority += 250.0f;
+			break;
+		}
+
+		return priority;
 	}
 
 	void
-		writeLightToFrameBuffer(CBPerFrame& buffer, int lightIndex, const LightData& light) {
-		const float range = light.range > 0.0f ? light.range : 10.0f;
-		const EU::Vector3 lightColor = light.color * light.intensity;
-		buffer.LightPositionsRanges[lightIndex] = XMFLOAT4(light.position.x, light.position.y, light.position.z, range);
-		buffer.LightColorsTypes[lightIndex] = XMFLOAT4(lightColor.x, lightColor.y, lightColor.z, static_cast<float>(static_cast<int>(light.type)));
-		buffer.LightDirectionsIntensities[lightIndex] = XMFLOAT4(light.direction.x, light.direction.y, light.direction.z, light.intensity);
+		writeLightToFrameBuffer(CBPerFrame& buffer,
+			int lightIndex,
+			const LightData& light) {
+		if (lightIndex < 0 || lightIndex >= kMaxSceneLights) {
+			return;
+		}
+
+		const float range = (std::max)(kMinimumLightRange, light.range);
+		const float intensity = (std::max)(0.0f, light.intensity);
+		const EU::Vector3 direction = safeNormalizedDirection(light.direction);
+		const EU::Vector3 effectiveColor = light.color * intensity;
+
+		buffer.LightPositionsRanges[lightIndex] = XMFLOAT4(
+			light.position.x,
+			light.position.y,
+			light.position.z,
+			range);
+
+		// Se conserva el contrato original del shader: el color ya incluye
+		// la intensidad. La intensidad tambien se envia en W por compatibilidad.
+		buffer.LightColorsTypes[lightIndex] = XMFLOAT4(
+			effectiveColor.x,
+			effectiveColor.y,
+			effectiveColor.z,
+			static_cast<float>(static_cast<int>(light.type)));
+
+		buffer.LightDirectionsIntensities[lightIndex] = XMFLOAT4(
+			direction.x,
+			direction.y,
+			direction.z,
+			intensity);
+
+		const float degreesToRadians = 3.14159265358979323846f / 180.0f;
+		float innerCos = 1.0f;
+		float outerCos = -1.0f;
+
+		if (light.type == LightType::Spot) {
+			innerCos = std::cos(light.innerSpotAngle * degreesToRadians);
+			outerCos = std::cos(light.spotAngle * degreesToRadians);
+		}
+
+		buffer.LightSpotAnglesEnabled[lightIndex] = XMFLOAT4(
+			innerCos,
+			outerCos,
+			light.enabled ? 1.0f : 0.0f,
+			(light.castShadow && isSupportedShadowLight(light)) ? 1.0f : 0.0f);
 	}
+
 }
 
 HRESULT
@@ -167,8 +235,21 @@ DeferredRenderer::render(DeviceContext& deviceContext,
 	buildQueues(scene, camera);
 	updatePerFrame(camera, scene, deviceContext);
 
+	// Esta pasada permite comparar la escena antes de aplicar sombras.
 	renderSceneToTarget(deviceContext, scene, m_preShadowDebugPass, false);
-	renderShadowPass(deviceContext);
+
+	if (m_hasValidShadowLight) {
+		renderShadowPass(deviceContext);
+	}
+	else if (m_shadowDSV.m_depthStencilView) {
+		// Evita conservar una sombra de un frame anterior al apagar la luz.
+		deviceContext.ClearDepthStencilView(
+			m_shadowDSV.m_depthStencilView,
+			D3D11_CLEAR_DEPTH,
+			1.0f,
+			0);
+	}
+
 	renderSceneToTarget(deviceContext, scene, viewportPass, true);
 }
 
@@ -176,6 +257,9 @@ void
 DeferredRenderer::destroy() {
 	m_opaqueQueue.clear();
 	m_transparentQueue.clear();
+	m_lightQueue.clear();
+	m_primaryShadowLight = nullptr;
+	m_hasValidShadowLight = false;
 
 	SAFE_RELEASE(m_alphaBlendState);
 	SAFE_RELEASE(m_opaqueBlendState);
@@ -226,14 +310,18 @@ DeferredRenderer::buildQueues(RenderScene& scene, const Camera& camera) {
 	m_transparentQueue.clear();
 
 	for (auto& object : scene.opaqueObjects) {
-		m_opaqueQueue.push_back(&object);
+		if (object.mesh) {
+			m_opaqueQueue.push_back(&object);
+		}
 	}
 
 	for (auto& object : scene.transparentObjects) {
-		m_transparentQueue.push_back(&object);
+		if (object.mesh) {
+			m_transparentQueue.push_back(&object);
+		}
 	}
 
-	std::sort(m_opaqueQueue.begin(), m_opaqueQueue.end(),
+	std::stable_sort(m_opaqueQueue.begin(), m_opaqueQueue.end(),
 		[](const RenderObject* lhs, const RenderObject* rhs) {
 			if (lhs->materialInstance != rhs->materialInstance) {
 				return lhs->materialInstance < rhs->materialInstance;
@@ -241,10 +329,39 @@ DeferredRenderer::buildQueues(RenderScene& scene, const Camera& camera) {
 			return lhs->distanceToCamera < rhs->distanceToCamera;
 		});
 
-	std::sort(m_transparentQueue.begin(), m_transparentQueue.end(),
+	std::stable_sort(m_transparentQueue.begin(), m_transparentQueue.end(),
 		[](const RenderObject* lhs, const RenderObject* rhs) {
 			return lhs->distanceToCamera > rhs->distanceToCamera;
 		});
+
+	buildLightQueue(scene);
+}
+
+void
+DeferredRenderer::buildLightQueue(const RenderScene& scene) {
+	m_lightQueue.clear();
+	m_primaryShadowLight = scene.findPrimaryShadowLight();
+	m_hasValidShadowLight = m_primaryShadowLight != nullptr;
+
+	for (const LightData& light : scene.lights) {
+		if (!light.enabled ||
+			light.intensity < kMinimumLightIntensity) {
+			continue;
+		}
+
+		m_lightQueue.push_back(&light);
+	}
+
+	std::stable_sort(m_lightQueue.begin(), m_lightQueue.end(),
+		[](const LightData* lhs, const LightData* rhs) {
+			if (!lhs) return false;
+			if (!rhs) return true;
+			return lightRenderPriority(*lhs) > lightRenderPriority(*rhs);
+		});
+
+	if (m_lightQueue.size() > static_cast<size_t>(kMaxSceneLights)) {
+		m_lightQueue.resize(static_cast<size_t>(kMaxSceneLights));
+	}
 }
 
 void
@@ -252,66 +369,173 @@ DeferredRenderer::updatePerFrame(const Camera& camera,
 	const RenderScene& scene,
 	DeviceContext& deviceContext) {
 	updateLightMatrices(camera, scene);
+
 	XMStoreFloat4x4(&m_cbPerFrame.View, XMMatrixTranspose(camera.getView()));
 	XMStoreFloat4x4(&m_cbPerFrame.Projection, XMMatrixTranspose(camera.getProj()));
 	m_cbPerFrame.CameraPos = camera.getPosition();
-	m_cbPerFrame.LightDir = EU::Vector3(0.0f, -1.0f, 0.0f);
+
+	// Valores de compatibilidad para el shader original. Nunca se deja
+	// LightColor en negro: si una escena no tiene una luz valida, se usa
+	// una direccional neutra para que los modelos sigan siendo visibles.
+	m_cbPerFrame.LightDir = safeNormalizedDirection(
+		EU::Vector3(-0.20f, -1.0f, 1.0f));
 	m_cbPerFrame.LightColor = EU::Vector3(1.0f, 1.0f, 1.0f);
 	m_cbPerFrame.LightPosition = EU::Vector3(0.0f, 3.0f, 0.0f);
 	m_cbPerFrame.LightRange = 10.0f;
 	m_cbPerFrame.LightType = static_cast<int>(LightType::Directional);
 	m_cbPerFrame.LightCount = 0;
+
 	for (int lightIndex = 0; lightIndex < kMaxSceneLights; ++lightIndex) {
-		m_cbPerFrame.LightPositionsRanges[lightIndex] = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
-		m_cbPerFrame.LightColorsTypes[lightIndex] = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
-		m_cbPerFrame.LightDirectionsIntensities[lightIndex] = XMFLOAT4(0.0f, -1.0f, 0.0f, 0.0f);
+		m_cbPerFrame.LightPositionsRanges[lightIndex] =
+			XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
+		m_cbPerFrame.LightColorsTypes[lightIndex] =
+			XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
+		m_cbPerFrame.LightDirectionsIntensities[lightIndex] =
+			XMFLOAT4(0.0f, -1.0f, 0.0f, 0.0f);
+		m_cbPerFrame.LightSpotAnglesEnabled[lightIndex] =
+			XMFLOAT4(1.0f, -1.0f, 0.0f, 0.0f);
 	}
 
-	if (!scene.directionalLights.empty()) {
-		const LightData* primaryShadowLight = findPrimaryShadowLight(scene);
-		int lightCount = 0;
-		if (primaryShadowLight) {
-			writeLightToFrameBuffer(m_cbPerFrame, lightCount++, *primaryShadowLight);
+	int lightCount = 0;
+	for (const LightData* light : m_lightQueue) {
+		if (!light || lightCount >= kMaxSceneLights) {
+			continue;
 		}
-		for (const LightData& light : scene.directionalLights) {
-			if (&light == primaryShadowLight || lightCount >= kMaxSceneLights) {
-				continue;
-			}
-			writeLightToFrameBuffer(m_cbPerFrame, lightCount++, light);
-		}
-		m_cbPerFrame.LightCount = lightCount;
 
-		const LightData& mainLight = primaryShadowLight ? *primaryShadowLight : scene.directionalLights[0];
-		m_cbPerFrame.LightDir = mainLight.direction;
-		m_cbPerFrame.LightColor = mainLight.color * mainLight.intensity;
-		m_cbPerFrame.LightPosition = mainLight.position;
-		m_cbPerFrame.LightRange = mainLight.range > 0.0f ? mainLight.range : 10.0f;
-		m_cbPerFrame.LightType = static_cast<int>(mainLight.type);
+		writeLightToFrameBuffer(m_cbPerFrame, lightCount, *light);
+		++lightCount;
+	}
+	m_cbPerFrame.LightCount = lightCount;
+
+	// El shader actual fue creado alrededor de una luz direccional.
+	// Aunque existan spotlights, la parte legacy siempre prefiere una
+	// direccional y evita que una point/spot oscurezca toda la escena.
+	const LightData* legacyLight = nullptr;
+	for (const LightData* light : m_lightQueue) {
+		if (light && light->type == LightType::Directional) {
+			legacyLight = light;
+			break;
+		}
+	}
+	if (!legacyLight && !m_lightQueue.empty()) {
+		legacyLight = m_lightQueue.front();
 	}
 
-	m_perFrameBuffer.update(deviceContext, nullptr, 0, nullptr, &m_cbPerFrame, 0, 0);
+	if (legacyLight) {
+		m_cbPerFrame.LightDir =
+			safeNormalizedDirection(legacyLight->direction);
+		m_cbPerFrame.LightColor =
+			legacyLight->color *
+			(std::max)(0.05f, legacyLight->intensity);
+		m_cbPerFrame.LightPosition = legacyLight->position;
+		m_cbPerFrame.LightRange =
+			(std::max)(kMinimumLightRange, legacyLight->range);
+		m_cbPerFrame.LightType =
+			static_cast<int>(legacyLight->type);
+	}
+
+	m_perFrameBuffer.update(
+		deviceContext,
+		nullptr,
+		0,
+		nullptr,
+		&m_cbPerFrame,
+		0,
+		0);
 }
 
 void
-DeferredRenderer::updateLightMatrices(const Camera& camera, const RenderScene& scene) {
-	EU::Vector3 lightDir = EU::Vector3(0.0f, -1.0f, 0.0f);
-	const LightData* primaryShadowLight = findPrimaryShadowLight(scene);
-	if (primaryShadowLight) {
-		lightDir = primaryShadowLight->direction;
+DeferredRenderer::updateLightMatrices(const Camera& camera,
+	const RenderScene& scene) {
+	(void)scene;
+	m_hasValidShadowLight = m_primaryShadowLight != nullptr;
+
+	if (!m_primaryShadowLight ||
+		!isSupportedShadowLight(*m_primaryShadowLight)) {
+		m_hasValidShadowLight = false;
+		XMStoreFloat4x4(
+			&m_cbPerFrame.LightViewProjection,
+			XMMatrixTranspose(XMMatrixIdentity()));
+		return;
 	}
 
-	XMVECTOR lightDirVec = XMVector3Normalize(XMVectorSet(lightDir.x, lightDir.y, lightDir.z, 0.0f));
-	XMVECTOR cameraPos = XMVectorSet(camera.getPosition().x, camera.getPosition().y, camera.getPosition().z, 1.0f);
-	XMVECTOR lightTarget = cameraPos;
-	XMVECTOR lightEye = XMVectorSubtract(lightTarget, XMVectorScale(lightDirVec, 35.0f));
+	const LightData& light = *m_primaryShadowLight;
+	const EU::Vector3 lightDirection =
+		safeNormalizedDirection(light.direction);
+
+	const XMVECTOR directionVector = XMVectorSet(
+		lightDirection.x,
+		lightDirection.y,
+		lightDirection.z,
+		0.0f);
+
 	XMVECTOR worldUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-	if (fabsf(XMVectorGetX(XMVector3Dot(lightDirVec, worldUp))) > 0.98f) {
+	if (fabsf(XMVectorGetX(
+		XMVector3Dot(directionVector, worldUp))) > 0.98f) {
 		worldUp = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);
 	}
 
-	XMMATRIX lightView = XMMatrixLookAtLH(lightEye, lightTarget, worldUp);
-	XMMATRIX lightProjection = XMMatrixOrthographicLH(40.0f, 40.0f, 1.0f, 80.0f);
-	XMStoreFloat4x4(&m_cbPerFrame.LightViewProjection, XMMatrixTranspose(lightView * lightProjection));
+	XMMATRIX lightView = XMMatrixIdentity();
+	XMMATRIX lightProjection = XMMatrixIdentity();
+
+	if (light.type == LightType::Directional) {
+		const EU::Vector3 cameraPosition = camera.getPosition();
+		const XMVECTOR cameraPositionVector = XMVectorSet(
+			cameraPosition.x,
+			cameraPosition.y,
+			cameraPosition.z,
+			1.0f);
+
+		const float shadowDistance = 35.0f;
+		const XMVECTOR lightTarget = cameraPositionVector;
+		const XMVECTOR lightEye = XMVectorSubtract(
+			lightTarget,
+			XMVectorScale(directionVector, shadowDistance));
+
+		lightView = XMMatrixLookAtLH(lightEye, lightTarget, worldUp);
+		lightProjection = XMMatrixOrthographicLH(
+			40.0f,
+			40.0f,
+			1.0f,
+			80.0f);
+	}
+	else if (light.type == LightType::Spot) {
+		const XMVECTOR lightEye = XMVectorSet(
+			light.position.x,
+			light.position.y,
+			light.position.z,
+			1.0f);
+		const XMVECTOR lightTarget = XMVectorAdd(
+			lightEye,
+			directionVector);
+
+		const float degreesToRadians =
+			3.14159265358979323846f / 180.0f;
+		const float fullConeDegrees = (std::max)(
+			1.0f,
+			(std::min)(light.spotAngle * 2.0f, 175.0f));
+		const float fieldOfView = fullConeDegrees * degreesToRadians;
+		const float nearPlane = (std::max)(
+			0.05f,
+			light.range * 0.001f);
+		const float farPlane = (std::max)(
+			nearPlane + 0.1f,
+			light.range);
+
+		lightView = XMMatrixLookAtLH(lightEye, lightTarget, worldUp);
+		lightProjection = XMMatrixPerspectiveFovLH(
+			fieldOfView,
+			1.0f,
+			nearPlane,
+			farPlane);
+	}
+	else {
+		m_hasValidShadowLight = false;
+	}
+
+	XMStoreFloat4x4(
+		&m_cbPerFrame.LightViewProjection,
+		XMMatrixTranspose(lightView * lightProjection));
 }
 
 void
@@ -462,8 +686,13 @@ DeferredRenderer::renderLightingPass(DeviceContext& deviceContext) {
 	};
 
 	deviceContext.PSSetShaderResources(0, 4, gBufferResources);
-	if (m_applyShadows && m_shadowDepthSRV.m_textureFromImg) {
-		deviceContext.PSSetShaderResources(6, 1, &m_shadowDepthSRV.m_textureFromImg);
+	if (m_applyShadows &&
+		m_hasValidShadowLight &&
+		m_shadowDepthSRV.m_textureFromImg) {
+		deviceContext.PSSetShaderResources(
+			6,
+			1,
+			&m_shadowDepthSRV.m_textureFromImg);
 	}
 	else {
 		ID3D11ShaderResourceView* nullShadowSRV[1] = { nullptr };
@@ -475,7 +704,8 @@ DeferredRenderer::renderLightingPass(DeviceContext& deviceContext) {
 	m_deferredLightingShader.render(deviceContext);
 	m_perFrameBuffer.render(deviceContext, 0, 1, true);
 	m_lightingDebugData.DebugViewMode = m_shadowFactorDebugEnabled ? 1 : m_deferredDebugViewMode;
-	m_lightingDebugData.ShadowStrength = 1.0f;
+	m_lightingDebugData.ShadowStrength =
+		(m_applyShadows && m_hasValidShadowLight) ? 1.0f : 0.0f;
 	m_lightingDebugBuffer.update(deviceContext, nullptr, 0, nullptr, &m_lightingDebugData, 0, 0);
 	m_lightingDebugBuffer.render(deviceContext, 1, 1, true);
 
@@ -499,8 +729,13 @@ DeferredRenderer::renderSkyboxPass(DeviceContext& deviceContext, RenderScene& sc
 void
 DeferredRenderer::renderTransparentPass(DeviceContext& deviceContext) {
 	m_perFrameBuffer.render(deviceContext, 0, 1, true);
-	if (m_applyShadows && m_shadowDepthSRV.m_textureFromImg) {
-		deviceContext.PSSetShaderResources(6, 1, &m_shadowDepthSRV.m_textureFromImg);
+	if (m_applyShadows &&
+		m_hasValidShadowLight &&
+		m_shadowDepthSRV.m_textureFromImg) {
+		deviceContext.PSSetShaderResources(
+			6,
+			1,
+			&m_shadowDepthSRV.m_textureFromImg);
 	}
 	else {
 		ID3D11ShaderResourceView* nullShadowSRV[1] = { nullptr };
@@ -601,7 +836,9 @@ DeferredRenderer::renderForwardObject(DeviceContext& deviceContext,
 
 void
 DeferredRenderer::renderShadowPass(DeviceContext& deviceContext) {
-	if (!m_shadowDSV.m_depthStencilView || !m_shadowShader.m_VertexShader) {
+	if (!m_hasValidShadowLight ||
+		!m_shadowDSV.m_depthStencilView ||
+		!m_shadowShader.m_VertexShader) {
 		return;
 	}
 

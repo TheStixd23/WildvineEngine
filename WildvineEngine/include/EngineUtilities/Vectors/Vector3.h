@@ -25,127 +25,128 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
-*/
+ */
 #pragma once
 
 #include "EngineUtilities\Utilities\EngineMath.h"
+
 namespace EU {
-	/**
- * @brief A 3D vector class.
- *
- * This class represents a vector in 3-dimensional space and provides
- * basic vector operations such as addition, subtraction, scalar multiplication,
- * and normalization.
- */
-	class Vector3 {
-	public:
-		float x; /**< The x-coordinate of the vector. */
-		float y; /**< The y-coordinate of the vector. */
-		float z; /**< The z-coordinate of the vector. */
+    class Vector3 {
+    public:
+        float x;
+        float y;
+        float z;
 
-		/**
-		 * @brief Default constructor.
-		 *
-		 * Initializes the vector to (0, 0, 0).
-		 */
-		Vector3() : x(0), y(0), z(0) {}
+        Vector3()
+            : x(0.0f), y(0.0f), z(0.0f) {
+        }
 
-		/**
-		 * @brief Parameterized constructor.
-		 *
-		 * Initializes the vector to the given x, y, and z values.
-		 *
-		 * @param x The x-coordinate.
-		 * @param y The y-coordinate.
-		 * @param z The z-coordinate.
-		 */
-		Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
+        Vector3(float xValue, float yValue, float zValue)
+            : x(xValue), y(yValue), z(zValue) {
+        }
 
-		/**
-		 * @brief Adds another vector to this vector.
-		 *
-		 * @param other The vector to add.
-		 * @return The result of the addition.
-		 */
-		Vector3 operator+(const Vector3& other) const {
-			return Vector3(x + other.x, y + other.y, z + other.z);
-		}
+        Vector3 operator+(const Vector3& other) const {
+            return Vector3(x + other.x, y + other.y, z + other.z);
+        }
 
-		// Operador += (para acumuladores de tangentes/bitangentes)
-		Vector3& operator+=(const Vector3& other) {
-			x += other.x; y += other.y; z += other.z;
-			return *this;
-		}
+        Vector3& operator+=(const Vector3& other) {
+            x += other.x;
+            y += other.y;
+            z += other.z;
+            return *this;
+        }
 
-		/**
-		 * @brief Subtracts another vector from this vector.
-		 *
-		 * @param other The vector to subtract.
-		 * @return The result of the subtraction.
-		 */
-		Vector3 operator-(const Vector3& other) const {
-			return Vector3(x - other.x, y - other.y, z - other.z);
-		}
+        Vector3 operator-(const Vector3& other) const {
+            return Vector3(x - other.x, y - other.y, z - other.z);
+        }
 
-		/**
-		 * @brief Multiplies this vector by a scalar.
-		 *
-		 * @param scalar The scalar to multiply by.
-		 * @return The result of the multiplication.
-		 */
-		Vector3 operator*(float scalar) const {
-			return Vector3(x * scalar, y * scalar, z * scalar);
-		}
+        Vector3& operator-=(const Vector3& other) {
+            x -= other.x;
+            y -= other.y;
+            z -= other.z;
+            return *this;
+        }
 
-		/**
-		 * @brief Calculates the magnitude (length) of the vector.
-		 *
-		 * @return The magnitude of the vector.
-		 */
-		float magnitude() const {
-			return EU::sqrt(x * x + y * y + z * z);
-		}
+        Vector3 operator-() const {
+            return Vector3(-x, -y, -z);
+        }
 
-		/**
-		 * @brief Normalizes the vector.
-		 *
-		 * @return The normalized vector.
-		 */
-		Vector3 normalize() const {
-			float mag = magnitude();
-			if (mag == 0) {
-				return Vector3(0, 0, 0);
-			}
-			return Vector3(x / mag, y / mag, z / mag);
-		}
+        Vector3 operator*(float scalar) const {
+            return Vector3(x * scalar, y * scalar, z * scalar);
+        }
 
-		void
-			zero() {
-			Vector3(0, 0, 0);
-		}
+        Vector3& operator*=(float scalar) {
+            x *= scalar;
+            y *= scalar;
+            z *= scalar;
+            return *this;
+        }
 
-		void
-			one() {
-			Vector3(1, 1, 1);
-		}
+        Vector3 operator/(float scalar) const {
+            if (EU::abs(scalar) <= 0.000001f) {
+                return Vector3();
+            }
+            return Vector3(x / scalar, y / scalar, z / scalar);
+        }
 
+        Vector3& operator/=(float scalar) {
+            if (EU::abs(scalar) > 0.000001f) {
+                x /= scalar;
+                y /= scalar;
+                z /= scalar;
+            }
+            return *this;
+        }
 
-		// ---- helpers con tu Vector3 ----
-		float dot(const Vector3& a, const Vector3& b) {
-			return a.x * b.x + a.y * b.y + a.z * b.z;
-		}
+        float magnitudeSquared() const {
+            return x * x + y * y + z * z;
+        }
 
-		Vector3 cross(const Vector3& a, const Vector3& b) {
-			return Vector3(
-				a.y * b.z - a.z * b.y,
-				a.z * b.x - a.x * b.z,
-				a.x * b.y - a.y * b.x
-			);
-		}
+        float magnitude() const {
+            return EU::sqrt(magnitudeSquared());
+        }
 
-		// Método para obtener un puntero a los datos como un arreglo
-		// @return: Puntero a los componentes del vector
-		float* data() { return &x; }
-		const float* data() const { return &x; }
-	};
+        bool isNearlyZero(float tolerance = 0.000001f) const {
+            return magnitudeSquared() <= tolerance * tolerance;
+        }
+
+        Vector3 normalize() const {
+            const float length = magnitude();
+            if (length <= 0.000001f) {
+                return Vector3();
+            }
+            return *this / length;
+        }
+
+        void zero() {
+            x = 0.0f;
+            y = 0.0f;
+            z = 0.0f;
+        }
+
+        void one() {
+            x = 1.0f;
+            y = 1.0f;
+            z = 1.0f;
+        }
+
+        static float dot(const Vector3& a, const Vector3& b) {
+            return a.x * b.x + a.y * b.y + a.z * b.z;
+        }
+
+        static Vector3 cross(const Vector3& a, const Vector3& b) {
+            return Vector3(
+                a.y * b.z - a.z * b.y,
+                a.z * b.x - a.x * b.z,
+                a.x * b.y - a.y * b.x);
+        }
+
+        float* data() {
+            return &x;
+        }
+
+        const float* data() const {
+            return &x;
+        }
+    };
 }

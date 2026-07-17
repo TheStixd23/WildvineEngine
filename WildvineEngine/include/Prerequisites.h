@@ -1,9 +1,23 @@
-#pragma once
+﻿#pragma once
 // Librerias STD
 #include <string>
 #include <sstream>
 #include <vector>
+
+// Evita que Windows defina macros min/max que rompen std::min y std::max.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
+
+// Proteccion adicional por si Windows.h fue incluido antes desde otro archivo.
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+
 #include <xnamath.h>
 #include <thread>
 #include <memory>
@@ -107,7 +121,9 @@ struct CBChangesEveryFrame
 enum ExtensionType {
     DDS = 0,
     PNG = 1,
-    JPG = 2
+    JPG = 2,
+    TGA = 3,
+    BMP = 4
 };
 
 enum ShaderType {
@@ -125,5 +141,6 @@ enum
     TRANSFORM = 1,
     MESH = 2,
     MATERIAL = 3,
-    HIERARCHY = 4
+    HIERARCHY = 4,
+    LIGHT = 5
 };

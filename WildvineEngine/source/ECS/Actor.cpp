@@ -1,171 +1,202 @@
-#include "ECS/Actor.h"
+﻿#include "ECS/Actor.h"
+#include "ECS/MeshRendererComponent.h"
 #include "MeshComponent.h"
 #include "Device.h"
 #include "DeviceContext.h"
 
+int Actor::s_nextActorId = 1;
+
+Actor::Actor() {
+    initializeIdentity();
+}
+
 Actor::Actor(Device& device) {
-	// Setup Default Components
-	EU::TSharedPointer<Transform> transform = EU::MakeShared<Transform>();
-	addComponent(transform);
-	EU::TSharedPointer<MeshComponent> meshComponent = EU::MakeShared<MeshComponent>();
-	addComponent(meshComponent);
+    initializeIdentity();
 
-	HRESULT hr;
-	std::string classNameType = "Actor -> " + m_name;
-	hr = m_modelBuffer.init(device, sizeof(CBChangesEveryFrame));
-	if (FAILED(hr)) {
-		ERROR("Actor", classNameType.c_str(), "Failed to create new CBChangesEveryFrame");
-	}
+    EU::TSharedPointer<Transform> transform = EU::MakeShared<Transform>();
+    addComponent(transform);
 
-	// Awake
-	awake();
+    EU::TSharedPointer<MeshComponent> meshComponent = EU::MakeShared<MeshComponent>();
+    addComponent(meshComponent);
 
-	hr = m_sampler.init(device);
-	if (FAILED(hr)) {
-		ERROR("Actor", classNameType.c_str(), "Failed to create new SamplerState");
-	}
+    const std::string classNameType = "Actor -> " + m_name;
+    HRESULT hr = m_modelBuffer.init(device, sizeof(CBChangesEveryFrame));
+    if (FAILED(hr)) {
+        ERROR("Actor", classNameType.c_str(), "Failed to create CBChangesEveryFrame");
+    }
 
-	//hr = m_rasterizer.init(device);
-	//if (FAILED(hr)) {
-	//	ERROR("Actor", classNameType.c_str(), "Failed to create new Rasterizer");
-	//}
+    awake();
 
-	//hr = m_blendstate.init(device);
-	//if (FAILED(hr)) {
-	//	ERROR("Actor", classNameType.c_str(), "Failed to create new BlendState");
-	//}
-
-	//hr = m_shaderShadow.CreateShader(device, PIXEL_SHADER, "HybridEngine.fx");
-	//
-	//if (FAILED(hr)) {
-	//	ERROR("Main", "InitDevice",
-	//		("Failed to initialize Shadow Shader. HRESULT: " + std::to_string(hr)).c_str());
-	//}
-	//
-	//hr = m_shaderBuffer.init(device, sizeof(CBChangesEveryFrame));
-	//if (FAILED(hr)) {
-	//	ERROR("Main", "InitDevice",
-	//		("Failed to initialize Shadow Buffer. HRESULT: " + std::to_string(hr)).c_str());
-	//
-	//}
-	//
-	//hr = m_shadowBlendState.init(device);
-	//if (FAILED(hr)) {
-	//	ERROR("Main", "InitDevice",
-	//		("Failed to initialize Shadow Blend State. HRESULT: " + std::to_string(hr)).c_str());
-	//
-	//}
-
-	//hr = m_shadowDepthStencilState.init(device, true, false);
-	//
-	//if (FAILED(hr)) {
-	//	ERROR("Main", "InitDevice",
-	//		("Failed to initialize Depth Stencil State. HRESULT: " + std::to_string(hr)).c_str());
-	//
-	//}
-	//
-	//m_LightPos = XMFLOAT4(2.0f, 4.0f, -2.0f, 1.0f);
+    hr = m_sampler.init(device);
+    if (FAILED(hr)) {
+        ERROR("Actor", classNameType.c_str(), "Failed to create SamplerState");
+    }
 }
 
-void
-Actor::update(float deltaTime, DeviceContext& deviceContext) {
-	// Update all components
-	for (auto& component : m_components) {
-		if (component) {
-			component->update(deltaTime);
-		}
-	}
-
-	// Update the model buffer
-	m_model.mWorld = XMMatrixTranspose(getComponent<Transform>()->matrix);
-	m_model.vMeshColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	// Update the constant buffer
-	m_modelBuffer.update(deviceContext, nullptr, 0, nullptr, &m_model, 0, 0);
+void Actor::initializeIdentity() {
+    m_id = s_nextActorId++;
+    m_isActive = true;
+    m_destroyed = false;
+    castShadow = true;
 }
 
-void
-Actor::render(DeviceContext& deviceContext) {
-	m_sampler.render(deviceContext, 0, 1);
+void Actor::update(float deltaTime, DeviceContext& deviceContext) {
+    if (!m_isActive || m_destroyed) {
+        return;
+    }
 
-	deviceContext.IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	// Update buffer and render all components
-	for (unsigned int i = 0; i < m_meshes.size(); i++)
-	{
-		m_vertexBuffers[i].render(deviceContext, 0, 1);
-		m_indexBuffers[i].render(deviceContext, 0, 1, false, DXGI_FORMAT_R32_UINT);
-		m_modelBuffer.render(deviceContext, 1, 1, true);
+    for (auto& component : m_components) {
+        if (component) {
+            component->update(deltaTime);
+        }
+    }
 
-		// Limpieza por mesh (evita herencias)
-		ID3D11ShaderResourceView* nullSRV[1] = { nullptr };
-		deviceContext.m_deviceContext->PSSetShaderResources(0, 1, nullSRV);
+    EU::TSharedPointer<Transform> transform = getComponent<Transform>();
+    if (!transform) {
+        return;
+    }
 
-		// Bind correcto por mesh
-		if (i < m_textures.size()) {
-			for (int k = 0; k < m_textures.size(); k++) {
-				m_textures[k].render(deviceContext, k, 1);   // albedo mesh i
-			}
-		}
-		// else: se queda null
-		deviceContext.DrawIndexed(m_meshes[i].m_numIndex, 0, 0);
-	}
+    m_model.mWorld = XMMatrixTranspose(transform->matrix);
+    m_model.vMeshColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    m_modelBuffer.update(deviceContext, nullptr, 0, nullptr, &m_model, 0, 0);
 }
 
-void
-Actor::renderForSkybox(DeviceContext& deviceContext) {
-	deviceContext.IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	// Update buffer and render all components
-	for (unsigned int i = 0; i < m_meshes.size(); i++) {
-		m_vertexBuffers[i].render(deviceContext, 0, 1);
-		m_indexBuffers[i].render(deviceContext, 0, 1, false, DXGI_FORMAT_R32_UINT);
+void Actor::render(DeviceContext& deviceContext) {
+    if (!m_isActive || m_destroyed) {
+        return;
+    }
 
-		deviceContext.DrawIndexed(m_meshes[i].m_numIndex, 0, 0);
-	}
+    m_sampler.render(deviceContext, 0, 1);
+    deviceContext.IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    const size_t renderableMeshCount = (std::min)(
+        m_meshes.size(),
+        (std::min)(m_vertexBuffers.size(), m_indexBuffers.size()));
+
+    for (size_t meshIndex = 0; meshIndex < renderableMeshCount; ++meshIndex) {
+        m_vertexBuffers[meshIndex].render(deviceContext, 0, 1);
+        m_indexBuffers[meshIndex].render(
+            deviceContext, 0, 1, false, DXGI_FORMAT_R32_UINT);
+        m_modelBuffer.render(deviceContext, 1, 1, true);
+
+        ID3D11ShaderResourceView* nullResources[8] = {};
+        deviceContext.m_deviceContext->PSSetShaderResources(0, 8, nullResources);
+
+        for (size_t textureIndex = 0;
+            textureIndex < m_textures.size() && textureIndex < 8;
+            ++textureIndex) {
+            m_textures[textureIndex].render(
+                deviceContext,
+                static_cast<unsigned int>(textureIndex),
+                1);
+        }
+
+        deviceContext.DrawIndexed(m_meshes[meshIndex].m_numIndex, 0, 0);
+    }
 }
 
+void Actor::renderForSkybox(DeviceContext& deviceContext) {
+    if (!m_isActive || m_destroyed) {
+        return;
+    }
 
-void
-Actor::destroy() {
-	for (auto& vertexBuffer : m_vertexBuffers) {
-		vertexBuffer.destroy();
-	}
+    deviceContext.IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	for (auto& indexBuffer : m_indexBuffers) {
-		indexBuffer.destroy();
-	}
+    const size_t renderableMeshCount = (std::min)(
+        m_meshes.size(),
+        (std::min)(m_vertexBuffers.size(), m_indexBuffers.size()));
 
-	for (auto& tex : m_textures) {
-		tex.destroy();
-	}
-	m_modelBuffer.destroy();
-
-	//m_rasterizer.destroy();
-	//m_blendstate.destroy();
-	m_sampler.destroy();
+    for (size_t meshIndex = 0; meshIndex < renderableMeshCount; ++meshIndex) {
+        m_vertexBuffers[meshIndex].render(deviceContext, 0, 1);
+        m_indexBuffers[meshIndex].render(
+            deviceContext, 0, 1, false, DXGI_FORMAT_R32_UINT);
+        deviceContext.DrawIndexed(m_meshes[meshIndex].m_numIndex, 0, 0);
+    }
 }
 
-void
-Actor::setMesh(Device& device, std::vector<MeshComponent> meshes) {
-	m_meshes = meshes;
-	HRESULT hr;
-	for (auto& mesh : m_meshes) {
-		// Crear vertex buffer
-		Buffer vertexBuffer;
-		hr = vertexBuffer.init(device, mesh, D3D11_BIND_VERTEX_BUFFER);
-		if (FAILED(hr)) {
-			ERROR("Actor", "setMesh", "Failed to create new vertexBuffer");
-		}
-		else {
-			m_vertexBuffers.push_back(vertexBuffer);
-		}
+void Actor::destroy() {
+    if (m_destroyed) {
+        return;
+    }
 
-		// Crear index buffer
-		Buffer indexBuffer;
-		hr = indexBuffer.init(device, mesh, D3D11_BIND_INDEX_BUFFER);
-		if (FAILED(hr)) {
-			ERROR("Actor", "setMesh", "Failed to create new indexBuffer");
-		}
-		else {
-			m_indexBuffers.push_back(indexBuffer);
-		}
-	}
+    for (auto& component : m_components) {
+        if (component) {
+            component->destroy();
+        }
+    }
+
+    for (auto& vertexBuffer : m_vertexBuffers) {
+        vertexBuffer.destroy();
+    }
+    for (auto& indexBuffer : m_indexBuffers) {
+        indexBuffer.destroy();
+    }
+    for (auto& texture : m_textures) {
+        texture.destroy();
+    }
+
+    m_vertexBuffers.clear();
+    m_indexBuffers.clear();
+    m_meshes.clear();
+    m_textures.clear();
+
+    m_modelBuffer.destroy();
+    m_sampler.destroy();
+
+    m_isActive = false;
+    m_destroyed = true;
+}
+
+void Actor::setMesh(Device& device, std::vector<MeshComponent> meshes) {
+    for (auto& vertexBuffer : m_vertexBuffers) {
+        vertexBuffer.destroy();
+    }
+    for (auto& indexBuffer : m_indexBuffers) {
+        indexBuffer.destroy();
+    }
+
+    m_vertexBuffers.clear();
+    m_indexBuffers.clear();
+    m_meshes.clear();
+
+    m_vertexBuffers.reserve(meshes.size());
+    m_indexBuffers.reserve(meshes.size());
+    m_meshes.reserve(meshes.size());
+
+    for (auto& mesh : meshes) {
+        Buffer vertexBuffer;
+        HRESULT hr = vertexBuffer.init(device, mesh, D3D11_BIND_VERTEX_BUFFER);
+        if (FAILED(hr)) {
+            ERROR("Actor", "setMesh", "Failed to create vertex buffer");
+            continue;
+        }
+
+        Buffer indexBuffer;
+        hr = indexBuffer.init(device, mesh, D3D11_BIND_INDEX_BUFFER);
+        if (FAILED(hr)) {
+            vertexBuffer.destroy();
+            ERROR("Actor", "setMesh", "Failed to create index buffer");
+            continue;
+        }
+
+        m_meshes.push_back(std::move(mesh));
+        m_vertexBuffers.push_back(vertexBuffer);
+        m_indexBuffers.push_back(indexBuffer);
+    }
+}
+
+void Actor::setCastShadow(bool value) {
+    castShadow = value;
+    EU::TSharedPointer<MeshRendererComponent> meshRenderer =
+        getComponent<MeshRendererComponent>();
+    if (meshRenderer) {
+        meshRenderer->setCastShadow(value);
+    }
+}
+
+void Actor::renderShadow(DeviceContext& deviceContext) {
+    if (!m_isActive || m_destroyed || !castShadow) {
+        return;
+    }
+    render(deviceContext);
 }

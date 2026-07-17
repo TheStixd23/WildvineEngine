@@ -1,11 +1,11 @@
-﻿/**
+/**
  * @file SceneGraph.cpp
- * @brief Implementa la logica de SceneGraph dentro del subsistema SceneGraph.
- * @ingroup scenegraph
+ * @brief Gestion segura de jerarquia, transformaciones y recopilacion de render.
  */
 #include "SceneGraph\SceneGraph.h"
 #include "SceneGraph\HierarchyComponent.h"
 #include "ECS\Entity.h"
+#include "ECS\Actor.h"
 #include "ECS\Transform.h"
 #include "ECS\LightComponent.h"
 #include "ECS\MeshRendererComponent.h"
@@ -17,297 +17,617 @@
 #include "Rendering/RenderScene.h"
 
 void SceneGraph::init() {
-	m_entities.clear();
+    m_entities.clear();
 }
 
 void SceneGraph::destroy() {
-	for (Entity* e : m_entities)
-	{
-		if (!e) continue;
-		auto h = e->getComponent<HierarchyComponent>();
-		if (h)
-		{
-			h->m_parent = nullptr;
-			h->m_children.clear();
-		}
-	}
+    for (Entity* entity : m_entities) {
+        if (!entity) continue;
 
-	m_entities.clear();
+        EU::TSharedPointer<HierarchyComponent> hierarchy =
+            entity->getComponent<HierarchyComponent>();
+        if (!hierarchy) continue;
+
+        hierarchy->m_parent = nullptr;
+        hierarchy->m_children.clear();
+    }
+
+    m_entities.clear();
 }
 
-void
-SceneGraph::addEntity(Entity* e) {
-	if (!e) {
-		return;
-	}
-	if (isRegistered(e)) {
-		return;
-	}
+void SceneGraph::ensureRequiredComponents(Entity* entity) {
+    if (!entity) return;
 
-	//	// Validar que existen los componentes minimos
-	if (!e->getComponent<Transform>()) {
-		e->addComponent(EU::MakeShared<Transform>());
-		e->getComponent<Transform>()->init();
-	}
-	if (!e->getComponent<HierarchyComponent>()) {
-		e->addComponent(EU::MakeShared<HierarchyComponent>());
-		e->getComponent<HierarchyComponent>()->init();
-	}
+    EU::TSharedPointer<Transform> transform =
+        entity->getComponent<Transform>();
+    if (!transform) {
+        transform = EU::MakeShared<Transform>();
+        entity->addComponent(transform);
+        transform->init();
+    }
 
-	m_entities.push_back(e);
+    EU::TSharedPointer<HierarchyComponent> hierarchy =
+        entity->getComponent<HierarchyComponent>();
+    if (!hierarchy) {
+        hierarchy = EU::MakeShared<HierarchyComponent>();
+        entity->addComponent(hierarchy);
+        hierarchy->init();
+    }
 }
 
-void
-SceneGraph::removeEntity(Entity* e) {
-	if (!e) return;
-	if (!isRegistered(e)) return;
+void SceneGraph::addEntity(Entity* entity) {
+    if (!entity || isRegistered(entity)) return;
 
-	// 1) Detach de su padre (si tiene)
-	detach(e);
-
-	// 2) Reparent de hijos a null (roots) o detach total
-	auto h = e->getComponent<HierarchyComponent>();
-	if (h)
-	{
-		// Copia local para no invalidar mientras iteras
-		auto childrenCopy = h->m_children;
-		for (Entity* c : childrenCopy)
-		{
-			if (!c) continue;
-			// detach del padre (que es e)
-			auto hc = c->getComponent<HierarchyComponent>();
-			if (hc && hc->m_parent == e)
-				hc->m_parent = nullptr;
-
-			// quitar referencia en e
-			h->removeChild(c);
-
-			// marcar dirty para recalcular world
-			auto wt = c->getComponent<Transform>();
-			//if (wt) wt->dirty = true;
-			//markWorldDirtyRecursive(wt);
-		}
-
-		h->m_children.clear();
-	}
-
-	// 3) eliminar del registro
-	m_entities.erase(std::remove(m_entities.begin(), m_entities.end(), e), m_entities.end());
+    ensureRequiredComponents(entity);
+    m_entities.push_back(entity);
 }
 
-bool
-SceneGraph::isAncestor(Entity* possibleAncestor, Entity* node) const {
-	// Recorre hacia arriba desde node: si encuentra possibleAncestor, hay ciclo
-	if (!possibleAncestor || !node) return false;
-
-	auto h = node->getComponent<HierarchyComponent>();
-	while (h && h->m_parent)
-	{
-		if (h->m_parent == possibleAncestor) return true;
-		node = h->m_parent;
-		EU::TSharedPointer<HierarchyComponent> h;
-		if (node)
-			h = node->getComponent<HierarchyComponent>();
-
-	}
-	return false;
+bool SceneGraph::hasEntityPointer(
+    const std::vector<Entity*>& entities,
+    Entity* value) const {
+    return std::find(entities.begin(), entities.end(), value) != entities.end();
 }
 
-bool
-SceneGraph::isRoot(Entity* e) const {
+void SceneGraph::removeAllChildReferences(Entity* child) {
+    if (!child) return;
 
-	if (!e) return false;
-	auto h = e->getComponent<HierarchyComponent>();
-	return (!h || h->m_parent == nullptr);
+    for (Entity* entity : m_entities) {
+        if (!entity || entity == child) continue;
+
+        EU::TSharedPointer<HierarchyComponent> hierarchy =
+            entity->getComponent<HierarchyComponent>();
+        if (hierarchy) {
+            hierarchy->removeChild(child);
+        }
+    }
 }
 
-bool
-SceneGraph::isRegistered(Entity* e) const {
-	return std::find(m_entities.begin(), m_entities.end(), e) != m_entities.end();
+void SceneGraph::removeEntity(
+    Entity* entity,
+    bool keepChildrenWorldTransform) {
+    if (!entity || !isRegistered(entity)) return;
+
+    EU::TSharedPointer<HierarchyComponent> hierarchy =
+        entity->getComponent<HierarchyComponent>();
+
+    if (hierarchy) {
+        const std::vector<Entity*> childrenCopy = hierarchy->m_children;
+        for (Entity* child : childrenCopy) {
+            if (!child) continue;
+
+            EU::TSharedPointer<HierarchyComponent> childHierarchy =
+                child->getComponent<HierarchyComponent>();
+            if (childHierarchy && childHierarchy->m_parent == entity) {
+                detach(child, keepChildrenWorldTransform);
+            }
+        }
+    }
+
+    detach(entity, false);
+    removeAllChildReferences(entity);
+
+    if (hierarchy) {
+        hierarchy->m_parent = nullptr;
+        hierarchy->m_children.clear();
+    }
+
+    m_entities.erase(
+        std::remove(m_entities.begin(), m_entities.end(), entity),
+        m_entities.end());
 }
 
-bool
-SceneGraph::attach(Entity* child, Entity* parent)
-{
-	if (!child || !parent) return false;
-	if (child == parent) return false;
+bool SceneGraph::isAncestor(
+    Entity* possibleAncestor,
+    Entity* node) const {
+    if (!possibleAncestor || !node) return false;
 
-	// Registro automático
-	addEntity(child);
-	addEntity(parent);
+    Entity* current = node;
+    std::vector<Entity*> visited;
+    visited.reserve(m_entities.size());
 
-	// Evita ciclos: parent no puede estar debajo de child
-	if (isAncestor(child, parent)) return false;
+    while (current) {
+        if (hasEntityPointer(visited, current)) {
+            ERROR("SceneGraph", "isAncestor",
+                "Se detecto una jerarquia ciclica o corrupta.");
+            return false;
+        }
+        visited.push_back(current);
 
-	// Si child ya tiene padre, detach
-	detach(child);
+        EU::TSharedPointer<HierarchyComponent> hierarchy =
+            current->getComponent<HierarchyComponent>();
+        if (!hierarchy || !hierarchy->m_parent) return false;
 
-	auto hc = child->getComponent<HierarchyComponent>();
-	auto hp = parent->getComponent<HierarchyComponent>();
-	if (!hc || !hp) return false;
+        if (hierarchy->m_parent == possibleAncestor) return true;
+        current = hierarchy->m_parent;
+    }
 
-	hc->m_parent = parent;
-	hp->addChild(child);
-
-	//markWorldDirtyRecursive(wt);
-	return true;
+    return false;
 }
 
-bool
-SceneGraph::detach(Entity* child) {
-	if (!child) return false;
+bool SceneGraph::isRoot(Entity* entity) const {
+    if (!entity) return false;
 
-	auto hc = child->getComponent<HierarchyComponent>();
-	if (!hc) return false;
-
-	Entity* parent = hc->m_parent;
-	if (!parent) return true; // ya estaba root
-
-	auto hp = parent->getComponent<HierarchyComponent>();
-	if (hp) hp->removeChild(child);
-
-	hc->m_parent = nullptr;
-
-	//markWorldDirtyRecursive(wt);
-	return true;
+    EU::TSharedPointer<HierarchyComponent> hierarchy =
+        entity->getComponent<HierarchyComponent>();
+    return !hierarchy || hierarchy->m_parent == nullptr;
 }
 
-void
-SceneGraph::update(float deltaTime, DeviceContext& deviceContext) {
-	// Actualiza todas las entidades
-	for (Entity* e : m_entities)
-	{
-		if (!e) continue;
-		e->update(deltaTime, deviceContext);
-	}
-
-	// 2) Propagación World: procesa roots
-	for (Entity* e : m_entities)
-	{
-		if (!e) continue;
-		if (isRoot(e))
-		{
-			updateWorldRecursive(e, XMMatrixIdentity());
-		}
-	}
+bool SceneGraph::isRegistered(Entity* entity) const {
+    return entity &&
+        std::find(m_entities.begin(), m_entities.end(), entity) !=
+        m_entities.end();
 }
 
-void
-SceneGraph::updateWorldRecursive(Entity* node, const XMMATRIX& parentWorld) {
-	auto t = node->getComponent<Transform>();
-	// Dirty Matrix?
-	auto h = node->getComponent<HierarchyComponent>();
+Entity* SceneGraph::getParent(Entity* entity) const {
+    if (!entity) return nullptr;
 
-	if (!t || !h) {
-		return;
-	}
-	// Tu Transform::matrix es LOCAL (S*R*T)
-	// World = Local * ParentWorld
-	auto worldMatrix = t->matrix * parentWorld;
-	t->worldMatrix = worldMatrix;
+    EU::TSharedPointer<HierarchyComponent> hierarchy =
+        entity->getComponent<HierarchyComponent>();
+    return hierarchy ? hierarchy->m_parent : nullptr;
+}
 
-	for (Entity* c : h->m_children) {
-		updateWorldRecursive(c, worldMatrix);
-	}
+const std::vector<Entity*>* SceneGraph::getChildren(Entity* entity) const {
+    if (!entity) return nullptr;
+
+    EU::TSharedPointer<HierarchyComponent> hierarchy =
+        entity->getComponent<HierarchyComponent>();
+    return hierarchy ? &hierarchy->m_children : nullptr;
+}
+
+std::vector<Entity*> SceneGraph::getRootEntities() const {
+    std::vector<Entity*> roots;
+    roots.reserve(m_entities.size());
+
+    for (Entity* entity : m_entities) {
+        if (entity && isRoot(entity)) {
+            roots.push_back(entity);
+        }
+    }
+    return roots;
+}
+
+Entity* SceneGraph::findEntityById(int id) const {
+    for (Entity* entity : m_entities) {
+        Actor* actor = dynamic_cast<Actor*>(entity);
+        if (actor && actor->getId() == id) return entity;
+    }
+    return nullptr;
+}
+
+Entity* SceneGraph::findEntityByName(const std::string& name) const {
+    for (Entity* entity : m_entities) {
+        Actor* actor = dynamic_cast<Actor*>(entity);
+        if (actor && actor->getName() == name) return entity;
+    }
+    return nullptr;
+}
+
+XMMATRIX SceneGraph::calculateWorldMatrix(Entity* entity) const {
+    if (!entity) return XMMatrixIdentity();
+
+    EU::TSharedPointer<Transform> transform =
+        entity->getComponent<Transform>();
+    if (!transform) return XMMatrixIdentity();
+
+    transform->rebuildLocalMatrix();
+    XMMATRIX world = transform->matrix;
+
+    std::vector<Entity*> visited;
+    visited.reserve(m_entities.size());
+    visited.push_back(entity);
+
+    Entity* current = entity;
+    while (current) {
+        EU::TSharedPointer<HierarchyComponent> hierarchy =
+            current->getComponent<HierarchyComponent>();
+        Entity* parent = hierarchy ? hierarchy->m_parent : nullptr;
+        if (!parent) break;
+
+        if (hasEntityPointer(visited, parent)) {
+            ERROR("SceneGraph", "calculateWorldMatrix",
+                "No se pudo calcular la matriz por un ciclo de jerarquia.");
+            break;
+        }
+        visited.push_back(parent);
+
+        EU::TSharedPointer<Transform> parentTransform =
+            parent->getComponent<Transform>();
+        if (parentTransform) {
+            parentTransform->rebuildLocalMatrix();
+            world = world * parentTransform->matrix;
+        }
+
+        current = parent;
+    }
+
+    return world;
+}
+
+bool SceneGraph::applyLocalMatrix(
+    Entity* entity,
+    const XMMATRIX& localMatrix) {
+    if (!entity) return false;
+
+    EU::TSharedPointer<Transform> transform =
+        entity->getComponent<Transform>();
+    if (!transform) return false;
+
+    return transform->setFromLocalMatrix(localMatrix);
+}
+
+bool SceneGraph::attach(
+    Entity* child,
+    Entity* parent,
+    bool keepWorldTransform) {
+    if (!child || !parent || child == parent) return false;
+
+    addEntity(child);
+    addEntity(parent);
+
+    if (isAncestor(child, parent)) {
+        ERROR("SceneGraph", "attach",
+            "No se puede crear una jerarquia circular.");
+        return false;
+    }
+
+    EU::TSharedPointer<HierarchyComponent> childHierarchy =
+        child->getComponent<HierarchyComponent>();
+    EU::TSharedPointer<HierarchyComponent> parentHierarchy =
+        parent->getComponent<HierarchyComponent>();
+    if (!childHierarchy || !parentHierarchy) return false;
+
+    if (childHierarchy->m_parent == parent) {
+        parentHierarchy->addChild(child);
+        return true;
+    }
+
+    const XMMATRIX childWorld = keepWorldTransform
+        ? calculateWorldMatrix(child)
+        : XMMatrixIdentity();
+
+    XMMATRIX inverseParentWorld = XMMatrixIdentity();
+    if (keepWorldTransform) {
+        const XMMATRIX parentWorld = calculateWorldMatrix(parent);
+        XMVECTOR determinant = XMVectorZero();
+        inverseParentWorld = XMMatrixInverse(&determinant, parentWorld);
+
+        if (fabsf(XMVectorGetX(determinant)) <= 0.000001f) {
+            ERROR("SceneGraph", "attach",
+                "La transformacion del padre no es invertible.");
+            return false;
+        }
+    }
+
+    if (keepWorldTransform) {
+        const XMMATRIX localMatrix = childWorld * inverseParentWorld;
+        if (!applyLocalMatrix(child, localMatrix)) {
+            ERROR("SceneGraph", "attach",
+                "No se pudo conservar la transformacion del hijo.");
+            return false;
+        }
+    }
+
+    detach(child, false);
+
+    childHierarchy->m_parent = parent;
+    parentHierarchy->addChild(child);
+    return true;
+}
+
+bool SceneGraph::detach(
+    Entity* child,
+    bool keepWorldTransform) {
+    if (!child) return false;
+
+    EU::TSharedPointer<HierarchyComponent> childHierarchy =
+        child->getComponent<HierarchyComponent>();
+    if (!childHierarchy) return false;
+
+    Entity* parent = childHierarchy->m_parent;
+    if (!parent) return true;
+
+    const XMMATRIX childWorld = keepWorldTransform
+        ? calculateWorldMatrix(child)
+        : XMMatrixIdentity();
+
+    EU::TSharedPointer<HierarchyComponent> parentHierarchy =
+        parent->getComponent<HierarchyComponent>();
+    if (parentHierarchy) parentHierarchy->removeChild(child);
+
+    childHierarchy->m_parent = nullptr;
+
+    if (keepWorldTransform && !applyLocalMatrix(child, childWorld)) {
+        ERROR("SceneGraph", "detach",
+            "No se pudo conservar la transformacion global.");
+        return false;
+    }
+
+    return true;
+}
+
+bool SceneGraph::reparent(
+    Entity* child,
+    Entity* newParent,
+    bool keepWorldTransform) {
+    return newParent
+        ? attach(child, newParent, keepWorldTransform)
+        : detach(child, keepWorldTransform);
+}
+
+bool SceneGraph::validateHierarchy(bool repair) {
+    bool valid = true;
+
+    if (repair) {
+        std::vector<Entity*> cleanEntities;
+        cleanEntities.reserve(m_entities.size());
+        for (Entity* entity : m_entities) {
+            if (!entity || hasEntityPointer(cleanEntities, entity)) {
+                valid = false;
+                continue;
+            }
+            cleanEntities.push_back(entity);
+        }
+        m_entities.swap(cleanEntities);
+    }
+    else {
+        std::vector<Entity*> seen;
+        for (Entity* entity : m_entities) {
+            if (!entity || hasEntityPointer(seen, entity)) valid = false;
+            if (entity) seen.push_back(entity);
+        }
+    }
+
+    for (Entity* entity : m_entities) {
+        if (!entity) continue;
+        ensureRequiredComponents(entity);
+
+        EU::TSharedPointer<HierarchyComponent> hierarchy =
+            entity->getComponent<HierarchyComponent>();
+        if (!hierarchy) {
+            valid = false;
+            continue;
+        }
+
+        if (hierarchy->m_parent == entity ||
+            (hierarchy->m_parent && !isRegistered(hierarchy->m_parent))) {
+            valid = false;
+            if (repair) hierarchy->m_parent = nullptr;
+        }
+
+        std::vector<Entity*> cleanChildren;
+        cleanChildren.reserve(hierarchy->m_children.size());
+        for (Entity* child : hierarchy->m_children) {
+            const bool childValid = child && child != entity &&
+                isRegistered(child) && !hasEntityPointer(cleanChildren, child);
+            if (!childValid) {
+                valid = false;
+                continue;
+            }
+
+            EU::TSharedPointer<HierarchyComponent> childHierarchy =
+                child->getComponent<HierarchyComponent>();
+            if (!childHierarchy || childHierarchy->m_parent != entity) {
+                valid = false;
+                if (repair && childHierarchy) {
+                    childHierarchy->m_parent = entity;
+                }
+            }
+            cleanChildren.push_back(child);
+        }
+
+        if (repair) hierarchy->m_children.swap(cleanChildren);
+    }
+
+    // Asegura que todo padre contenga una referencia a sus hijos.
+    for (Entity* entity : m_entities) {
+        if (!entity) continue;
+
+        EU::TSharedPointer<HierarchyComponent> hierarchy =
+            entity->getComponent<HierarchyComponent>();
+        Entity* parent = hierarchy ? hierarchy->m_parent : nullptr;
+        if (!parent) continue;
+
+        EU::TSharedPointer<HierarchyComponent> parentHierarchy =
+            parent->getComponent<HierarchyComponent>();
+        if (!parentHierarchy ||
+            !hasEntityPointer(parentHierarchy->m_children, entity)) {
+            valid = false;
+            if (repair && parentHierarchy) parentHierarchy->addChild(entity);
+        }
+    }
+
+    // Detecta ciclos recorriendo cada cadena de padres.
+    for (Entity* start : m_entities) {
+        std::vector<Entity*> chain;
+        Entity* current = start;
+
+        while (current) {
+            if (hasEntityPointer(chain, current)) {
+                valid = false;
+
+                if (repair) {
+                    EU::TSharedPointer<HierarchyComponent> hierarchy =
+                        current->getComponent<HierarchyComponent>();
+                    Entity* oldParent = hierarchy ? hierarchy->m_parent : nullptr;
+                    if (oldParent) {
+                        EU::TSharedPointer<HierarchyComponent> oldParentHierarchy =
+                            oldParent->getComponent<HierarchyComponent>();
+                        if (oldParentHierarchy) {
+                            oldParentHierarchy->removeChild(current);
+                        }
+                    }
+                    if (hierarchy) hierarchy->m_parent = nullptr;
+                }
+                break;
+            }
+
+            chain.push_back(current);
+            current = getParent(current);
+        }
+    }
+
+    return valid;
+}
+
+void SceneGraph::update(
+    float deltaTime,
+    DeviceContext& deviceContext) {
+    for (Entity* entity : m_entities) {
+        if (entity) entity->update(deltaTime, deviceContext);
+    }
+
+    std::vector<Entity*> recursionPath;
+    recursionPath.reserve(m_entities.size());
+
+    const std::vector<Entity*> roots = getRootEntities();
+    for (Entity* root : roots) {
+        updateWorldRecursive(root, XMMatrixIdentity(), recursionPath);
+    }
+}
+
+void SceneGraph::updateWorldRecursive(
+    Entity* node,
+    const XMMATRIX& parentWorld,
+    std::vector<Entity*>& recursionPath) {
+    if (!node || hasEntityPointer(recursionPath, node)) {
+        if (node) {
+            ERROR("SceneGraph", "updateWorldRecursive",
+                "Se omitio un ciclo detectado durante la actualizacion.");
+        }
+        return;
+    }
+
+    recursionPath.push_back(node);
+
+    EU::TSharedPointer<Transform> transform =
+        node->getComponent<Transform>();
+    EU::TSharedPointer<HierarchyComponent> hierarchy =
+        node->getComponent<HierarchyComponent>();
+
+    if (transform) {
+        transform->rebuildLocalMatrix();
+        transform->worldMatrix = transform->matrix * parentWorld;
+    }
+
+    if (hierarchy && transform) {
+        const std::vector<Entity*> childrenCopy = hierarchy->m_children;
+        for (Entity* child : childrenCopy) {
+            if (!child || !isRegistered(child)) continue;
+
+            EU::TSharedPointer<HierarchyComponent> childHierarchy =
+                child->getComponent<HierarchyComponent>();
+            if (!childHierarchy || childHierarchy->m_parent != node) continue;
+
+            updateWorldRecursive(
+                child,
+                transform->worldMatrix,
+                recursionPath);
+        }
+    }
+
+    recursionPath.pop_back();
 }
 
 void SceneGraph::render(DeviceContext& deviceContext) {
-	// Render all entities
-	for (auto& e : m_entities) {
-		if (e) {
-			e->render(deviceContext);
-		}
-	}
+    for (Entity* entity : m_entities) {
+        if (entity) entity->render(deviceContext);
+    }
 }
 
 void
 SceneGraph::gatherRenderScene(RenderScene& outScene, const Camera& camera) {
-	for (Entity* entity : m_entities)
-	{
-		if (!entity) {
-			continue;
-		}
+    for (Entity* entity : m_entities) {
+        if (!entity) {
+            continue;
+        }
 
-		auto lightComponent = entity->getComponent<LightComponent>();
-		if (lightComponent) {
-			outScene.directionalLights.push_back(lightComponent->getLightData());
-		}
+        Actor* actor = dynamic_cast<Actor*>(entity);
+        if (actor && !actor->isActive()) {
+            continue;
+        }
 
-		auto meshRenderer = entity->getComponent<MeshRendererComponent>();
-		auto transform = entity->getComponent<Transform>();
-		if (!meshRenderer || !transform || !meshRenderer->isVisible()) {
-			continue;
-		}
+        EU::TSharedPointer<Transform> transform =
+            entity->getComponent<Transform>();
 
-		RenderObject renderObject{};
-		renderObject.mesh = meshRenderer->getMesh();
-		renderObject.materialInstance = meshRenderer->getMaterialInstance();
-		renderObject.materialInstances = meshRenderer->getMaterialInstances();
-		renderObject.world = transform->worldMatrix;
-		renderObject.castShadow = meshRenderer->canCastShadow();
+        EU::TSharedPointer<LightComponent> lightComponent =
+            entity->getComponent<LightComponent>();
 
-		EU::Vector3 cameraPos = camera.getPosition();
-		XMFLOAT4X4 worldMatrix{};
-		XMStoreFloat4x4(&worldMatrix, transform->worldMatrix);
-		EU::Vector3 objectPos = EU::Vector3(worldMatrix._41, worldMatrix._42, worldMatrix._43);
-		float dx = objectPos.x - cameraPos.x;
-		float dy = objectPos.y - cameraPos.y;
-		float dz = objectPos.z - cameraPos.z;
-		renderObject.distanceToCamera = dx * dx + dy * dy + dz * dz;
+        if (lightComponent) {
+            if (transform) {
+                lightComponent->syncWithTransform(*transform);
+            }
 
-		bool hasOpaqueSubmeshes = false;
-		bool hasTransparentSubmeshes = false;
+            const LightData& light = lightComponent->getLightData();
+            outScene.addLight(light);
+        }
 
-		if (renderObject.mesh) {
-			const std::vector<Submesh>& submeshes =
-				renderObject.mesh->getSubmeshes();
+        EU::TSharedPointer<MeshRendererComponent> meshRenderer =
+            entity->getComponent<MeshRendererComponent>();
 
-			for (const Submesh& submesh : submeshes) {
-				MaterialInstance* materialInstance =
-					renderObject.materialInstance;
+        if (!meshRenderer || !transform ||
+            !meshRenderer->isVisible() ||
+            !meshRenderer->hasMesh()) {
+            continue;
+        }
 
-				if (submesh.materialSlot <
-					renderObject.materialInstances.size() &&
-					renderObject.materialInstances[
-						submesh.materialSlot]) {
-					materialInstance =
-						renderObject.materialInstances[
-							submesh.materialSlot];
-				}
+        RenderObject renderObject{};
+        renderObject.mesh = meshRenderer->getMesh();
+        renderObject.materialInstance = meshRenderer->getMaterialInstance();
+        renderObject.materialInstances = meshRenderer->getMaterialInstances();
+        renderObject.world = transform->worldMatrix;
+        renderObject.castShadow = meshRenderer->canCastShadow();
+        renderObject.receiveShadow = meshRenderer->canReceiveShadow();
 
-				Material* material =
-					materialInstance
-					? materialInstance->getMaterial()
-					: nullptr;
+        const EU::Vector3 cameraPosition = camera.getPosition();
+        XMFLOAT4X4 worldMatrix{};
+        XMStoreFloat4x4(&worldMatrix, transform->worldMatrix);
+        const EU::Vector3 objectPosition(
+            worldMatrix._41,
+            worldMatrix._42,
+            worldMatrix._43);
+        const EU::Vector3 cameraDelta = objectPosition - cameraPosition;
+        renderObject.distanceToCamera = cameraDelta.magnitudeSquared();
 
-				const MaterialDomain domain =
-					material
-					? material->getDomain()
-					: MaterialDomain::Opaque;
+        bool hasOpaqueSubmeshes = false;
+        bool hasTransparentSubmeshes = false;
 
-				if (domain == MaterialDomain::Transparent)
-					hasTransparentSubmeshes = true;
-				else
-					hasOpaqueSubmeshes = true;
-			}
-		}
+        const std::vector<Submesh>& submeshes =
+            renderObject.mesh->getSubmeshes();
 
-		if (!hasOpaqueSubmeshes &&
-			!hasTransparentSubmeshes) {
-			hasOpaqueSubmeshes = true;
-		}
+        for (const Submesh& submesh : submeshes) {
+            MaterialInstance* materialInstance =
+                meshRenderer->getMaterialInstance(submesh.materialSlot);
 
-		if (hasOpaqueSubmeshes) {
-			RenderObject opaqueObject = renderObject;
-			opaqueObject.transparent = false;
-			outScene.opaqueObjects.push_back(opaqueObject);
-		}
+            Material* material = materialInstance
+                ? materialInstance->getMaterial()
+                : nullptr;
 
-		if (hasTransparentSubmeshes) {
-			RenderObject transparentObject = renderObject;
-			transparentObject.transparent = true;
-			outScene.transparentObjects.push_back(
-				transparentObject);
-		}
-	}
+            const MaterialDomain domain = material
+                ? material->getDomain()
+                : MaterialDomain::Opaque;
+
+            if (domain == MaterialDomain::Transparent) {
+                hasTransparentSubmeshes = true;
+            }
+            else {
+                hasOpaqueSubmeshes = true;
+            }
+        }
+
+        if (!hasOpaqueSubmeshes && !hasTransparentSubmeshes) {
+            hasOpaqueSubmeshes = true;
+        }
+
+        if (hasOpaqueSubmeshes) {
+            RenderObject opaqueObject = renderObject;
+            opaqueObject.transparent = false;
+            outScene.opaqueObjects.push_back(opaqueObject);
+        }
+
+        if (hasTransparentSubmeshes) {
+            RenderObject transparentObject = renderObject;
+            transparentObject.transparent = true;
+            outScene.transparentObjects.push_back(transparentObject);
+        }
+    }
 }

@@ -1,7 +1,14 @@
-﻿#include "BaseApp.h"
+#include "BaseApp.h"
 #include "ResourceManager.h"
 #include <fstream>
 #include <iomanip>
+#include <commdlg.h>
+#include <cstdint>
+#include <limits>
+#include <unordered_map>
+#include <cstring>
+
+#pragma comment(lib, "Comdlg32.lib")
 
 namespace {
 
@@ -10,6 +17,121 @@ namespace {
 	static std::string fileBaseName(const std::string& path) { size_t s = path.find_last_of("/\\"); std::string n = (s == std::string::npos) ? path : path.substr(s + 1); return stripExt(n); }
 	static bool endsWith(const std::string& s, const std::string& suf) { return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0; }
 	static bool containsStr(const std::string& s, const std::string& sub) { return s.find(sub) != std::string::npos; }
+
+	enum class SceneActorKind {
+		Empty = 0,
+		Model = 1,
+		Light = 2
+	};
+
+	struct SceneActorRecord {
+		int sceneIndex = -1;
+		int parentIndex = -1;
+		SceneActorKind kind = SceneActorKind::Empty;
+		std::string name;
+		std::string sourcePath;
+		EU::Vector3 position;
+		EU::Vector3 rotation;
+		EU::Vector3 scale = EU::Vector3(1.0f, 1.0f, 1.0f);
+		bool active = true;
+		bool visible = true;
+		bool castShadow = true;
+		bool receiveShadow = true;
+		bool selectable = true;
+		bool hasLight = false;
+		LightData lightData{};
+		bool followLightPosition = true;
+		bool followLightDirection = false;
+		std::vector<MaterialParams> materialParams;
+	};
+
+	struct SceneDocument {
+		EU::Vector3 cameraPosition = EU::Vector3(0.0f, 1.55f, -7.0f);
+		EU::Vector3 cameraForward = EU::Vector3(0.0f, 0.0f, 1.0f);
+		EU::Vector3 cameraUp = EU::Vector3(0.0f, 1.0f, 0.0f);
+		int selectedActorIndex = -1;
+		std::vector<SceneActorRecord> actors;
+	};
+
+	static bool expectSceneToken(
+		std::istream& input,
+		const char* expectedToken) {
+		std::string token;
+		if (!(input >> token)) return false;
+		return token == expectedToken;
+	}
+
+	static std::string directoryOfPath(const std::string& path) {
+		const size_t separator = path.find_last_of("/\\");
+		return separator == std::string::npos
+			? std::string()
+			: path.substr(0, separator);
+	}
+
+	static std::string joinPath(
+		const std::string& left,
+		const std::string& right) {
+		if (left.empty()) return right;
+		if (right.empty()) return left;
+		const char last = left[left.size() - 1];
+		if (last == '\\' || last == '/') return left + right;
+		return left + "\\" + right;
+	}
+
+	static bool isAbsolutePathString(const std::string& path) {
+		if (path.size() >= 2 && path[1] == ':') return true;
+		return path.size() >= 2 &&
+			((path[0] == '\\' && path[1] == '\\') ||
+			 (path[0] == '/' && path[1] == '/'));
+	}
+
+	static bool isFiniteVector(const EU::Vector3& value) {
+		return std::isfinite(value.x) &&
+			std::isfinite(value.y) &&
+			std::isfinite(value.z);
+	}
+
+	static bool isFiniteMaterialParams(const MaterialParams& params) {
+		return std::isfinite(params.baseColor.x) &&
+			std::isfinite(params.baseColor.y) &&
+			std::isfinite(params.baseColor.z) &&
+			std::isfinite(params.baseColor.w) &&
+			std::isfinite(params.metallic) &&
+			std::isfinite(params.roughness) &&
+			std::isfinite(params.ao) &&
+			std::isfinite(params.normalScale) &&
+			std::isfinite(params.emissiveStrength) &&
+			std::isfinite(params.alphaCutoff);
+	}
+
+	static unsigned long long fnv1aAppend(
+		unsigned long long hash,
+		const void* data,
+		size_t size) {
+		const unsigned char* bytes =
+			static_cast<const unsigned char*>(data);
+		for (size_t index = 0; index < size; ++index) {
+			hash ^= static_cast<unsigned long long>(bytes[index]);
+			hash *= 1099511628211ull;
+		}
+		return hash;
+	}
+
+	template<typename T>
+	static unsigned long long fnv1aValue(
+		unsigned long long hash,
+		const T& value) {
+		return fnv1aAppend(hash, &value, sizeof(T));
+	}
+
+	static unsigned long long fnv1aString(
+		unsigned long long hash,
+		const std::string& value) {
+		hash = fnv1aValue(hash, value.size());
+		return value.empty()
+			? hash
+			: fnv1aAppend(hash, value.data(), value.size());
+	}
 
 	enum CarTextureId {
 		CarTexWhite = 0,
@@ -159,17 +281,311 @@ namespace {
 		return CarMatMatte;
 	}
 
-	static ExtensionType extFromName(const std::string& lower) { if (endsWith(lower, ".jpg") || endsWith(lower, ".jpeg")) return JPG; if (endsWith(lower, ".dds")) return DDS; return PNG; }
+	static ExtensionType extFromName(const std::string& lower) {
+        if (endsWith(lower, ".jpg") || endsWith(lower, ".jpeg")) return JPG;
+        if (endsWith(lower, ".dds")) return DDS;
+        if (endsWith(lower, ".tga")) return TGA;
+        if (endsWith(lower, ".bmp")) return BMP;
+        return PNG;
+    }
 	static std::vector<std::string> listImageFiles(const std::string& dir) {
 		std::vector<std::string> out; std::string pat = dir + "\\*"; WIN32_FIND_DATAA fd;
 		HANDLE h = FindFirstFileA(pat.c_str(), &fd); if (h == INVALID_HANDLE_VALUE) return out;
 		do {
 			if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
 			std::string lo = toLowerCopy(fd.cFileName);
-			if (endsWith(lo, ".png") || endsWith(lo, ".jpg") || endsWith(lo, ".jpeg") || endsWith(lo, ".dds") || endsWith(lo, ".tga"))
+			if (endsWith(lo, ".png") || endsWith(lo, ".jpg") || endsWith(lo, ".jpeg") ||
+                endsWith(lo, ".dds") || endsWith(lo, ".tga") || endsWith(lo, ".bmp"))
 				out.push_back(fd.cFileName);
 		} while (FindNextFileA(h, &fd));
 		FindClose(h); return out;
+	}
+
+	static bool filePathExists(const std::string& path) {
+		if (path.empty()) return false;
+		const DWORD attributes = GetFileAttributesA(path.c_str());
+		return attributes != INVALID_FILE_ATTRIBUTES &&
+			(attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+	}
+
+	static std::string fileNameFromPath(const std::string& path) {
+		const size_t separator = path.find_last_of("/\\");
+		return separator == std::string::npos
+			? path
+			: path.substr(separator + 1);
+	}
+
+	static std::string normalizeAssetName(const std::string& value) {
+		std::string result;
+		result.reserve(value.size());
+		for (char character : toLowerCopy(value)) {
+			if ((character >= 'a' && character <= 'z') ||
+				(character >= '0' && character <= '9')) {
+				result.push_back(character);
+			}
+		}
+		return result;
+	}
+
+	static bool isImagePath(const std::string& path) {
+		const std::string lower = toLowerCopy(path);
+		return endsWith(lower, ".png") ||
+			endsWith(lower, ".jpg") ||
+			endsWith(lower, ".jpeg") ||
+			endsWith(lower, ".dds") ||
+			endsWith(lower, ".tga") ||
+			endsWith(lower, ".bmp");
+	}
+
+	static void collectImagePathsRecursive(
+		const std::string& directory,
+		int remainingDepth,
+		std::vector<std::string>& output) {
+
+		if (directory.empty() || remainingDepth < 0) {
+			return;
+		}
+
+		WIN32_FIND_DATAA data{};
+		const std::string pattern = joinPath(directory, "*");
+		HANDLE search = FindFirstFileA(pattern.c_str(), &data);
+
+		if (search == INVALID_HANDLE_VALUE) {
+			return;
+		}
+
+		do {
+			const std::string name = data.cFileName;
+			if (name == "." || name == "..") {
+				continue;
+			}
+
+			const std::string fullPath =
+				joinPath(directory, name);
+
+			if ((data.dwFileAttributes &
+				FILE_ATTRIBUTE_DIRECTORY) != 0) {
+				if (remainingDepth > 0) {
+					collectImagePathsRecursive(
+						fullPath,
+						remainingDepth - 1,
+						output);
+				}
+			}
+			else if (isImagePath(name)) {
+				output.push_back(fullPath);
+			}
+		} while (FindNextFileA(search, &data));
+
+		FindClose(search);
+	}
+
+	enum class TextureSemantic {
+		Albedo,
+		Normal,
+		Metallic,
+		Roughness,
+		AO,
+		Emissive
+	};
+
+	static bool containsAnyToken(
+		const std::string& text,
+		const std::vector<std::string>& tokens) {
+		for (const std::string& token : tokens) {
+			if (text.find(token) != std::string::npos) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	static int textureSemanticScore(
+		const std::string& candidatePath,
+		TextureSemantic semantic,
+		const std::string& materialName,
+		const std::string& modelName) {
+
+		const std::string normalizedFile =
+			normalizeAssetName(
+				stripExt(
+					fileNameFromPath(
+						candidatePath)));
+		const std::string normalizedPath =
+			normalizeAssetName(candidatePath);
+		const std::string normalizedMaterial =
+			normalizeAssetName(materialName);
+		const std::string normalizedModel =
+			normalizeAssetName(modelName);
+
+		static const std::vector<std::string> tokenGroups[] = {
+			{ "basecolor", "basecolour", "albedo", "diffuse", "color", "colour" },
+			{ "normal", "normalmap", "nrm", "nor", "bump" },
+			{ "metallic", "metalness", "metal" },
+			{ "roughness", "rough", "rgh" },
+			{ "ambientocclusion", "occlusion", "ao" },
+			{ "emissive", "emission", "emit", "glow" }
+		};
+
+		const size_t semanticIndex =
+			static_cast<size_t>(semantic);
+
+		if (semanticIndex >=
+			(sizeof(tokenGroups) /
+			 sizeof(tokenGroups[0])) ||
+			!containsAnyToken(
+				normalizedFile,
+				tokenGroups[semanticIndex])) {
+			return -1000;
+		}
+
+		int score = 40;
+		bool hasContextMatch = false;
+
+		if (!normalizedMaterial.empty() &&
+			normalizedMaterial != "default" &&
+			normalizedPath.find(normalizedMaterial) !=
+				std::string::npos) {
+			score += 100;
+			hasContextMatch = true;
+		}
+
+		if (!normalizedModel.empty()) {
+			bool modelMatch =
+				normalizedPath.find(normalizedModel) !=
+					std::string::npos;
+
+			// Algunos paquetes acortan la carpeta de texturas. Por ejemplo:
+			// AlfaRomeo33Stradale.fbx -> Assets/Textures/AlfaRomeo33.
+			if (!modelMatch && normalizedModel.size() >= 8) {
+				for (size_t prefixLength = normalizedModel.size();
+					prefixLength >= 8;
+					--prefixLength) {
+					if (normalizedPath.find(
+						normalizedModel.substr(0, prefixLength)) !=
+						std::string::npos) {
+						modelMatch = true;
+						break;
+					}
+				}
+			}
+
+			if (modelMatch) {
+				score += 80;
+				hasContextMatch = true;
+			}
+		}
+
+		for (size_t groupIndex = 0;
+			groupIndex <
+				(sizeof(tokenGroups) /
+				 sizeof(tokenGroups[0]));
+			++groupIndex) {
+
+			if (groupIndex == semanticIndex) {
+				continue;
+			}
+
+			if (containsAnyToken(
+				normalizedFile,
+				tokenGroups[groupIndex])) {
+				score -= 40;
+			}
+		}
+
+		// No se toma una textura global de otro modelo solo porque contiene
+		// "basecolor" o "normal". Debe coincidir con el modelo o material.
+		if (!hasContextMatch) {
+			score -= 60;
+		}
+
+		return score;
+	}
+
+	static std::string resolveReferencedTexturePath(
+		const std::string& reference,
+		const std::string& modelPath,
+		const std::vector<std::string>& searchRoots,
+		const std::vector<std::string>& indexedImages) {
+
+		if (reference.empty()) {
+			return std::string();
+		}
+
+		std::string normalizedReference = reference;
+		for (char& character : normalizedReference) {
+			if (character == '/') character = '\\';
+		}
+
+		std::vector<std::string> directCandidates;
+		directCandidates.push_back(normalizedReference);
+
+		const std::string modelDirectory =
+			directoryOfPath(modelPath);
+		const std::string referenceFileName =
+			fileNameFromPath(normalizedReference);
+
+		if (!modelDirectory.empty()) {
+			directCandidates.push_back(
+				joinPath(modelDirectory, normalizedReference));
+			directCandidates.push_back(
+				joinPath(modelDirectory, referenceFileName));
+		}
+
+		for (const std::string& root : searchRoots) {
+			directCandidates.push_back(
+				joinPath(root, normalizedReference));
+			directCandidates.push_back(
+				joinPath(root, referenceFileName));
+		}
+
+		for (const std::string& candidate : directCandidates) {
+			if (filePathExists(candidate)) {
+				return candidate;
+			}
+		}
+
+		const std::string wantedName =
+			normalizeAssetName(
+				stripExt(referenceFileName));
+
+		for (const std::string& candidate : indexedImages) {
+			if (normalizeAssetName(
+				stripExt(
+					fileNameFromPath(candidate))) ==
+				wantedName) {
+				return candidate;
+			}
+		}
+
+		return std::string();
+	}
+
+	static std::string findTextureBySemantic(
+		TextureSemantic semantic,
+		const std::string& materialName,
+		const std::string& modelName,
+		const std::vector<std::string>& indexedImages) {
+
+		int bestScore = -1000;
+		std::string bestPath;
+
+		for (const std::string& candidate : indexedImages) {
+			const int score = textureSemanticScore(
+				candidate,
+				semantic,
+				materialName,
+				modelName);
+
+			if (score > bestScore) {
+				bestScore = score;
+				bestPath = candidate;
+			}
+		}
+
+		return bestScore > 0
+			? bestPath
+			: std::string();
 	}
 
 	static bool rayTriangleIntersection(
@@ -265,24 +681,109 @@ namespace {
 
 	class SpawnActorCommand : public ICommand {
 	public:
-		SpawnActorCommand(BaseApp* app, EU::TSharedPointer<Actor> actor) : m_app(app), m_actor(actor) {}
-		void undo() override { if (m_app) m_app->removeActorFromScene(m_actor); }
-		void redo() override { if (m_app) m_app->addActorToScene(m_actor); }
+		SpawnActorCommand(
+			BaseApp* app,
+			EU::TSharedPointer<Actor> actor,
+			EU::TSharedPointer<Actor> parent = EU::TSharedPointer<Actor>())
+			: m_app(app), m_actor(actor), m_parent(parent) {
+		}
+
+		void undo() override {
+			if (m_app) m_app->removeActorFromScene(m_actor);
+		}
+
+		void redo() override {
+			if (!m_app) return;
+			m_app->addActorToScene(m_actor);
+			if (!m_parent.isNull()) {
+				m_app->reparentActor(m_actor, m_parent, false);
+			}
+		}
+
 		const char* name() const override { return "Spawn Actor"; }
+
 	private:
 		BaseApp* m_app;
 		EU::TSharedPointer<Actor> m_actor;
+		EU::TSharedPointer<Actor> m_parent;
 	};
 
 	class DeleteActorCommand : public ICommand {
 	public:
-		DeleteActorCommand(BaseApp* app, EU::TSharedPointer<Actor> actor) : m_app(app), m_actor(actor) {}
-		void undo() override { if (m_app) m_app->addActorToScene(m_actor); }
-		void redo() override { if (m_app) m_app->removeActorFromScene(m_actor); }
+		DeleteActorCommand(
+			BaseApp* app,
+			EU::TSharedPointer<Actor> actor,
+			EU::TSharedPointer<Actor> parent,
+			const std::vector<EU::TSharedPointer<Actor>>& children)
+			: m_app(app),
+			  m_actor(actor),
+			  m_parent(parent),
+			  m_children(children) {
+		}
+
+		void undo() override {
+			if (!m_app) return;
+			m_app->addActorToScene(m_actor);
+
+			if (!m_parent.isNull()) {
+				m_app->reparentActor(m_actor, m_parent, false);
+			}
+
+			for (const auto& child : m_children) {
+				if (!child.isNull()) {
+					m_app->reparentActor(child, m_actor, true);
+				}
+			}
+		}
+
+		void redo() override {
+			if (m_app) m_app->removeActorFromScene(m_actor);
+		}
+
 		const char* name() const override { return "Delete Actor"; }
+
 	private:
 		BaseApp* m_app;
 		EU::TSharedPointer<Actor> m_actor;
+		EU::TSharedPointer<Actor> m_parent;
+		std::vector<EU::TSharedPointer<Actor>> m_children;
+	};
+
+	class ReparentActorCommand : public ICommand {
+	public:
+		ReparentActorCommand(
+			BaseApp* app,
+			EU::TSharedPointer<Actor> child,
+			EU::TSharedPointer<Actor> previousParent,
+			EU::TSharedPointer<Actor> newParent)
+			: m_app(app),
+			  m_child(child),
+			  m_previousParent(previousParent),
+			  m_newParent(newParent) {
+		}
+
+		void undo() override {
+			if (m_app) {
+				m_app->reparentActor(
+					m_child,
+					m_previousParent,
+					true);
+			}
+		}
+
+		void redo() override {
+			if (m_app) {
+				m_app->reparentActor(m_child, m_newParent, true);
+			}
+		}
+
+		const char* name() const override { return "Reparent Actor"; }
+
+	private:
+		BaseApp* m_app;
+		EU::TSharedPointer<Actor> m_child;
+		EU::TSharedPointer<Actor> m_previousParent;
+		EU::TSharedPointer<Actor> m_newParent;
 	};
 
 } // namespace
@@ -736,9 +1237,11 @@ BaseApp::init() {
 	}
 
 	m_car01->setName("Alfa Romeo 33 Stradale");
+	// El modelo de demostracion conserva la orientacion almacenada en el FBX.
+	// No se aplica una rotacion correctiva especifica para este automovil.
 	m_car01->getComponent<Transform>()->setTransform(
 		EU::Vector3(0.0f, 0.10f, 5.6f),
-		EU::Vector3(0.0f, 2.35f, 0.0f),
+		EU::Vector3(0.0f, 0.0f, 0.0f),
 		EU::Vector3(1.0f, 1.0f, 1.0f));
 
 	{
@@ -768,6 +1271,7 @@ BaseApp::init() {
 
 	m_actors.push_back(m_car01);
 	m_sceneGraph.addEntity(m_car01.get());
+	m_lastSelectedRenderableActor = m_car01;
 	m_actorSourcePaths[m_car01.get()] =
 		"Assets/Models/AlfaRomeo33Stradale.fbx";
 
@@ -793,12 +1297,14 @@ BaseApp::init() {
 		m_directionalLightActor->setName("Directional Light");
 		EU::TSharedPointer<LightComponent> lightComponent = m_directionalLightActor->getComponent<LightComponent>();
 		if (!lightComponent) { lightComponent = EU::MakeShared<LightComponent>(); m_directionalLightActor->addComponent(lightComponent); }
-		lightComponent->getLightData().type = LightType::Directional;
-		lightComponent->getLightData().direction = m_constantBufferStruct.LightDir;
-		lightComponent->getLightData().color = m_constantBufferStruct.LightColor;
-		lightComponent->getLightData().intensity = 1.0f;
-		lightComponent->getLightData().range = 12.0f;
+		lightComponent->setType(LightType::Directional);
+		lightComponent->setDirection(m_constantBufferStruct.LightDir);
+		lightComponent->setColor(m_constantBufferStruct.LightColor);
+		lightComponent->setIntensity(1.0f);
+		lightComponent->setRange(12.0f);
 		lightComponent->setCastShadow(true);
+		lightComponent->setFollowTransformPosition(false);
+		lightComponent->setFollowTransformDirection(false);
 		m_actors.push_back(m_directionalLightActor);
 		m_sceneGraph.addEntity(m_directionalLightActor.get());
 	}
@@ -811,8 +1317,901 @@ BaseApp::init() {
 
 	buildTextureThumbnails();
 
+	ensureSceneDirectories();
+	m_savedSceneSignature = computeSceneSignature();
+	m_sceneDirty = false;
+	m_recoveryAvailable = fileExists(getAutosaveScenePath());
+	m_gui.m_sceneDisplayName = getSceneDisplayName();
+	m_gui.m_sceneDirty = false;
+	m_gui.m_recoveryAvailable = m_recoveryAvailable;
 
 	return S_OK;
+}
+
+std::string
+BaseApp::getExecutableDirectory() const {
+	char buffer[32768] = {};
+	const DWORD length = GetModuleFileNameA(
+		nullptr,
+		buffer,
+		static_cast<DWORD>(sizeof(buffer)));
+	if (length == 0 || length >= sizeof(buffer)) {
+		return ".";
+	}
+	return directoryOfPath(std::string(buffer, length));
+}
+
+bool
+BaseApp::fileExists(const std::string& path) const {
+	if (path.empty()) return false;
+	const DWORD attributes = GetFileAttributesA(path.c_str());
+	return attributes != INVALID_FILE_ATTRIBUTES &&
+		(attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+bool
+BaseApp::ensureSceneDirectories() const {
+	const std::string savedDirectory =
+		joinPath(getExecutableDirectory(), "Saved");
+	const std::string sceneDirectory =
+		joinPath(savedDirectory, "Scenes");
+	const std::string autosaveDirectory =
+		joinPath(savedDirectory, "Autosaves");
+
+	auto createDirectoryIfNeeded = [](const std::string& directory) {
+		if (CreateDirectoryA(directory.c_str(), nullptr) != 0) {
+			return true;
+		}
+		return GetLastError() == ERROR_ALREADY_EXISTS;
+	};
+
+	return createDirectoryIfNeeded(savedDirectory) &&
+		createDirectoryIfNeeded(sceneDirectory) &&
+		createDirectoryIfNeeded(autosaveDirectory);
+}
+
+std::string
+BaseApp::getDefaultScenePath() const {
+	return joinPath(
+		joinPath(
+			joinPath(getExecutableDirectory(), "Saved"),
+			"Scenes"),
+		"Untitled.wvscene");
+}
+
+std::string
+BaseApp::getAutosaveScenePath() const {
+	return joinPath(
+		joinPath(
+			joinPath(getExecutableDirectory(), "Saved"),
+			"Autosaves"),
+		"Recovery.wvscene");
+}
+
+std::string
+BaseApp::getSceneDisplayName() const {
+	return m_currentScenePath.empty()
+		? "Sin titulo"
+		: fileBaseName(m_currentScenePath);
+}
+
+bool
+BaseApp::showOpenSceneDialog(std::string& outPath) const {
+	outPath.clear();
+	char fileName[32768] = {};
+	const std::string initialDirectory = joinPath(
+		joinPath(getExecutableDirectory(), "Saved"),
+		"Scenes");
+
+	OPENFILENAMEA dialog{};
+	dialog.lStructSize = sizeof(dialog);
+	dialog.hwndOwner = m_window.m_hWnd;
+	dialog.lpstrFilter =
+		"Wildvine Scene (*.wvscene)\0*.wvscene\0"
+		"Todos los archivos (*.*)\0*.*\0\0";
+	dialog.lpstrFile = fileName;
+	dialog.nMaxFile = static_cast<DWORD>(sizeof(fileName));
+	dialog.lpstrInitialDir = initialDirectory.c_str();
+	dialog.lpstrDefExt = "wvscene";
+	dialog.Flags = OFN_FILEMUSTEXIST |
+		OFN_PATHMUSTEXIST |
+		OFN_HIDEREADONLY |
+		OFN_NOCHANGEDIR;
+
+	if (GetOpenFileNameA(&dialog) == FALSE) {
+		return false;
+	}
+	outPath = fileName;
+	return !outPath.empty();
+}
+
+bool
+BaseApp::showSaveSceneDialog(std::string& outPath) const {
+	outPath.clear();
+	char fileName[32768] = {};
+	strcpy_s(fileName, sizeof(fileName), "Untitled.wvscene");
+	const std::string initialDirectory = joinPath(
+		joinPath(getExecutableDirectory(), "Saved"),
+		"Scenes");
+
+	OPENFILENAMEA dialog{};
+	dialog.lStructSize = sizeof(dialog);
+	dialog.hwndOwner = m_window.m_hWnd;
+	dialog.lpstrFilter =
+		"Wildvine Scene (*.wvscene)\0*.wvscene\0"
+		"Todos los archivos (*.*)\0*.*\0\0";
+	dialog.lpstrFile = fileName;
+	dialog.nMaxFile = static_cast<DWORD>(sizeof(fileName));
+	dialog.lpstrInitialDir = initialDirectory.c_str();
+	dialog.lpstrDefExt = "wvscene";
+	dialog.Flags = OFN_OVERWRITEPROMPT |
+		OFN_PATHMUSTEXIST |
+		OFN_NOCHANGEDIR;
+
+	if (GetSaveFileNameA(&dialog) == FALSE) {
+		return false;
+	}
+	outPath = fileName;
+	if (!endsWith(toLowerCopy(outPath), ".wvscene")) {
+		outPath += ".wvscene";
+	}
+	return true;
+}
+
+void
+BaseApp::deleteAutosaveFile() {
+	const std::string autosavePath = getAutosaveScenePath();
+	if (fileExists(autosavePath)) {
+		DeleteFileA(autosavePath.c_str());
+	}
+	m_recoveryAvailable = fileExists(autosavePath);
+}
+
+void
+BaseApp::clearCurrentScene() {
+	m_sceneGraph.destroy();
+	m_sceneGraph.init();
+	m_actors.clear();
+	m_actorSourcePaths.clear();
+	m_directionalLightActor.reset();
+	m_lastSelectedRenderableActor.reset();
+	m_gui.selectedActorIndex = -1;
+	m_commands.clear();
+	m_clipboard = ActorClipboard();
+	m_hasClipboard = false;
+	m_lightNameCounter = 1;
+}
+
+void
+BaseApp::createDefaultSceneLight() {
+	EU::TSharedPointer<Actor> lightActor = spawnLightActor(
+		LightType::Directional,
+		"Directional Light",
+		EU::Vector3(0.0f, 3.0f, 0.0f),
+		EU::Vector3(1.0f, 0.96f, 0.90f),
+		1.0f,
+		12.0f,
+		true);
+	if (lightActor.isNull()) return;
+
+	EU::TSharedPointer<LightComponent> light =
+		lightActor->getComponent<LightComponent>();
+	if (light) {
+		light->setDirection(EU::Vector3(-0.35f, -0.85f, 0.25f));
+		light->setFollowTransformPosition(false);
+		light->setFollowTransformDirection(false);
+	}
+
+	addActorToScene(lightActor);
+	m_directionalLightActor = lightActor;
+}
+
+bool
+BaseApp::newScene() {
+	clearCurrentScene();
+	createDefaultSceneLight();
+
+	const EU::Vector3 cameraPosition(0.0f, 1.55f, -7.0f);
+	m_camera.lookAt(
+		cameraPosition,
+		EU::Vector3(0.0f, 1.0f, 0.0f));
+	m_camera.setPosition(cameraPosition);
+	m_camera.updateViewMatrix();
+
+	m_currentScenePath.clear();
+	m_savedSceneSignature = computeSceneSignature();
+	m_sceneDirty = false;
+	m_autosaveTimer = 0.0f;
+	deleteAutosaveFile();
+	m_gui.m_statusMessage = "Nueva escena creada";
+	m_gui.m_sceneDisplayName = getSceneDisplayName();
+	m_gui.m_sceneDirty = false;
+	MESSAGE("BaseApp", "newScene", "Nueva escena creada");
+	return true;
+}
+
+bool
+BaseApp::saveSceneInternal(
+	const std::string& path,
+	bool updateEditorState) {
+	if (path.empty()) return false;
+	if (!ensureSceneDirectories()) {
+		ERROR("BaseApp", "saveScene", "No se pudieron crear las carpetas de escenas");
+		return false;
+	}
+
+	const std::string temporaryPath = path + ".tmp";
+	std::ofstream output(temporaryPath.c_str(), std::ios::out | std::ios::trunc);
+	if (!output.is_open()) {
+		ERROR("BaseApp", "saveScene", "No se pudo abrir el archivo temporal");
+		return false;
+	}
+
+	output << std::setprecision(9);
+	output << "WILDVINE_SCENE 1\n";
+	const EU::Vector3 cameraPosition = m_camera.getPosition();
+	const EU::Vector3 cameraForward = m_camera.GetForward();
+	const EU::Vector3 cameraUp = m_camera.GetUp();
+	output << "CAMERA "
+		<< cameraPosition.x << ' ' << cameraPosition.y << ' ' << cameraPosition.z << ' '
+		<< cameraForward.x << ' ' << cameraForward.y << ' ' << cameraForward.z << ' '
+		<< cameraUp.x << ' ' << cameraUp.y << ' ' << cameraUp.z << '\n';
+	output << "SELECTED " << m_gui.selectedActorIndex << '\n';
+	output << "ACTOR_COUNT " << m_actors.size() << '\n';
+
+	std::unordered_map<const Actor*, int> actorIndices;
+	for (int index = 0; index < static_cast<int>(m_actors.size()); ++index) {
+		if (!m_actors[index].isNull()) {
+			actorIndices[m_actors[index].get()] = index;
+		}
+	}
+
+	for (int index = 0; index < static_cast<int>(m_actors.size()); ++index) {
+		const EU::TSharedPointer<Actor> actor = m_actors[index];
+		if (actor.isNull()) continue;
+
+		EU::TSharedPointer<Transform> transform =
+			actor->getComponent<Transform>();
+		EU::TSharedPointer<MeshRendererComponent> renderer =
+			actor->getComponent<MeshRendererComponent>();
+		EU::TSharedPointer<LightComponent> light =
+			actor->getComponent<LightComponent>();
+
+		SceneActorKind kind = SceneActorKind::Empty;
+		if (light) kind = SceneActorKind::Light;
+		else if (renderer && renderer->hasMesh()) kind = SceneActorKind::Model;
+
+		int parentIndex = -1;
+		Actor* parent = dynamic_cast<Actor*>(m_sceneGraph.getParent(actor.get()));
+		const auto parentFound = actorIndices.find(parent);
+		if (parentFound != actorIndices.end()) {
+			parentIndex = parentFound->second;
+		}
+
+		std::string sourcePath;
+		const auto sourceFound = m_actorSourcePaths.find(actor.get());
+		if (sourceFound != m_actorSourcePaths.end()) {
+			sourcePath = sourceFound->second;
+		}
+		if (kind == SceneActorKind::Empty && !sourcePath.empty()) {
+			kind = SceneActorKind::Model;
+		}
+
+		const EU::Vector3 position = transform
+			? transform->getPosition()
+			: EU::Vector3();
+		const EU::Vector3 rotation = transform
+			? transform->getRotation()
+			: EU::Vector3();
+		const EU::Vector3 scale = transform
+			? transform->getScale()
+			: EU::Vector3(1.0f, 1.0f, 1.0f);
+
+		output << "ACTOR\n";
+		output << "INDEX " << index << '\n';
+		output << "PARENT " << parentIndex << '\n';
+		output << "KIND " << static_cast<int>(kind) << '\n';
+		output << "NAME " << std::quoted(actor->getName()) << '\n';
+		output << "SOURCE " << std::quoted(sourcePath) << '\n';
+		output << "ACTIVE " << (actor->isActive() ? 1 : 0) << '\n';
+		output << "TRANSFORM "
+			<< position.x << ' ' << position.y << ' ' << position.z << ' '
+			<< rotation.x << ' ' << rotation.y << ' ' << rotation.z << ' '
+			<< scale.x << ' ' << scale.y << ' ' << scale.z << '\n';
+		output << "RENDERER "
+			<< (renderer && renderer->isVisible() ? 1 : 0) << ' '
+			<< (renderer && renderer->canCastShadow() ? 1 : 0) << ' '
+			<< (renderer && renderer->canReceiveShadow() ? 1 : 0) << ' '
+			<< (renderer && renderer->isSelectable() ? 1 : 0) << '\n';
+
+		if (light) {
+			const LightData& data = light->getLightData();
+			output << "LIGHT 1 "
+				<< static_cast<int>(data.type) << ' '
+				<< (data.enabled ? 1 : 0) << ' '
+				<< (data.castShadow ? 1 : 0) << ' '
+				<< (light->followsTransformPosition() ? 1 : 0) << ' '
+				<< (light->followsTransformDirection() ? 1 : 0) << '\n';
+			output << "LIGHT_COLOR "
+				<< data.color.x << ' ' << data.color.y << ' ' << data.color.z << '\n';
+			output << "LIGHT_POSITION "
+				<< data.position.x << ' ' << data.position.y << ' ' << data.position.z << '\n';
+			output << "LIGHT_DIRECTION "
+				<< data.direction.x << ' ' << data.direction.y << ' ' << data.direction.z << '\n';
+			output << "LIGHT_PARAMS "
+				<< data.intensity << ' ' << data.range << ' '
+				<< data.innerSpotAngle << ' ' << data.spotAngle << '\n';
+		}
+		else {
+			output << "LIGHT 0 0 0 0 0 0\n";
+			output << "LIGHT_COLOR 1 1 1\n";
+			output << "LIGHT_POSITION 0 0 0\n";
+			output << "LIGHT_DIRECTION 0 -1 0\n";
+			output << "LIGHT_PARAMS 1 10 20 35\n";
+		}
+
+		const std::vector<MaterialInstance*> materials = renderer
+			? renderer->getMaterialInstances()
+			: std::vector<MaterialInstance*>();
+		output << "MATERIAL_COUNT " << materials.size() << '\n';
+		for (MaterialInstance* material : materials) {
+			const MaterialParams params = material
+				? material->getParams()
+				: MaterialParams();
+			output << "MATERIAL "
+				<< params.baseColor.x << ' '
+				<< params.baseColor.y << ' '
+				<< params.baseColor.z << ' '
+				<< params.baseColor.w << ' '
+				<< params.metallic << ' '
+				<< params.roughness << ' '
+				<< params.ao << ' '
+				<< params.normalScale << ' '
+				<< params.emissiveStrength << ' '
+				<< params.alphaCutoff << '\n';
+		}
+		output << "END_ACTOR\n";
+	}
+	output << "END_SCENE\n";
+	output.flush();
+	const bool writeSucceeded = output.good();
+	output.close();
+
+	if (!writeSucceeded) {
+		DeleteFileA(temporaryPath.c_str());
+		ERROR("BaseApp", "saveScene", "La escritura de la escena quedo incompleta");
+		return false;
+	}
+
+	if (fileExists(path)) {
+		const std::string backupPath = path + ".bak";
+		CopyFileA(path.c_str(), backupPath.c_str(), FALSE);
+	}
+
+	if (MoveFileExA(
+		temporaryPath.c_str(),
+		path.c_str(),
+		MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == FALSE) {
+		DeleteFileA(temporaryPath.c_str());
+		ERROR("BaseApp", "saveScene", "No se pudo reemplazar el archivo de escena");
+		return false;
+	}
+
+	if (updateEditorState) {
+		m_currentScenePath = path;
+		m_savedSceneSignature = computeSceneSignature();
+		m_sceneDirty = false;
+		m_autosaveTimer = 0.0f;
+		deleteAutosaveFile();
+		m_gui.m_statusMessage = "Escena guardada: " + getSceneDisplayName();
+		m_gui.m_sceneDisplayName = getSceneDisplayName();
+		m_gui.m_sceneDirty = false;
+		MESSAGE("BaseApp", "saveScene", "Escena guardada correctamente");
+	}
+	return true;
+}
+
+bool
+BaseApp::saveScene(const std::string& path) {
+	return saveSceneInternal(path, true);
+}
+
+bool
+BaseApp::loadSceneInternal(
+	const std::string& path,
+	bool recoveredAutosave) {
+	std::ifstream input(path.c_str(), std::ios::in);
+	if (!input.is_open()) {
+		ERROR("BaseApp", "loadScene", "No se pudo abrir la escena");
+		return false;
+	}
+
+	std::string magic;
+	int version = 0;
+	if (!(input >> magic >> version) ||
+		magic != "WILDVINE_SCENE" ||
+		version != 1) {
+		ERROR("BaseApp", "loadScene", "Formato o version de escena no compatible");
+		return false;
+	}
+
+	SceneDocument document;
+	if (!expectSceneToken(input, "CAMERA") ||
+		!(input >> document.cameraPosition.x
+			>> document.cameraPosition.y
+			>> document.cameraPosition.z
+			>> document.cameraForward.x
+			>> document.cameraForward.y
+			>> document.cameraForward.z
+			>> document.cameraUp.x
+			>> document.cameraUp.y
+			>> document.cameraUp.z) ||
+		!expectSceneToken(input, "SELECTED") ||
+		!(input >> document.selectedActorIndex) ||
+		!expectSceneToken(input, "ACTOR_COUNT")) {
+		ERROR("BaseApp", "loadScene", "Cabecera de escena incompleta");
+		return false;
+	}
+
+	if (!isFiniteVector(document.cameraPosition) ||
+		!isFiniteVector(document.cameraForward) ||
+		!isFiniteVector(document.cameraUp)) {
+		ERROR("BaseApp", "loadScene", "La camara contiene valores invalidos");
+		return false;
+	}
+
+	size_t actorCount = 0;
+	if (!(input >> actorCount) || actorCount > 10000) {
+		ERROR("BaseApp", "loadScene", "Cantidad de actores invalida");
+		return false;
+	}
+	document.actors.reserve(actorCount);
+
+	for (size_t actorNumber = 0; actorNumber < actorCount; ++actorNumber) {
+		SceneActorRecord record;
+		int kind = 0;
+		int active = 1;
+		int visible = 1;
+		int castShadow = 1;
+		int receiveShadow = 1;
+		int selectable = 1;
+		int hasLight = 0;
+		int lightType = 0;
+		int lightEnabled = 1;
+		int lightCastShadow = 0;
+		int followPosition = 1;
+		int followDirection = 0;
+
+		if (!expectSceneToken(input, "ACTOR") ||
+			!expectSceneToken(input, "INDEX") || !(input >> record.sceneIndex) ||
+			!expectSceneToken(input, "PARENT") || !(input >> record.parentIndex) ||
+			!expectSceneToken(input, "KIND") || !(input >> kind) ||
+			!expectSceneToken(input, "NAME") || !(input >> std::quoted(record.name)) ||
+			!expectSceneToken(input, "SOURCE") || !(input >> std::quoted(record.sourcePath)) ||
+			!expectSceneToken(input, "ACTIVE") || !(input >> active) ||
+			!expectSceneToken(input, "TRANSFORM") ||
+			!(input >> record.position.x >> record.position.y >> record.position.z
+				>> record.rotation.x >> record.rotation.y >> record.rotation.z
+				>> record.scale.x >> record.scale.y >> record.scale.z) ||
+			!expectSceneToken(input, "RENDERER") ||
+			!(input >> visible >> castShadow >> receiveShadow >> selectable) ||
+			!expectSceneToken(input, "LIGHT") ||
+			!(input >> hasLight >> lightType >> lightEnabled >> lightCastShadow
+				>> followPosition >> followDirection) ||
+			!expectSceneToken(input, "LIGHT_COLOR") ||
+			!(input >> record.lightData.color.x
+				>> record.lightData.color.y
+				>> record.lightData.color.z) ||
+			!expectSceneToken(input, "LIGHT_POSITION") ||
+			!(input >> record.lightData.position.x
+				>> record.lightData.position.y
+				>> record.lightData.position.z) ||
+			!expectSceneToken(input, "LIGHT_DIRECTION") ||
+			!(input >> record.lightData.direction.x
+				>> record.lightData.direction.y
+				>> record.lightData.direction.z) ||
+			!expectSceneToken(input, "LIGHT_PARAMS") ||
+			!(input >> record.lightData.intensity
+				>> record.lightData.range
+				>> record.lightData.innerSpotAngle
+				>> record.lightData.spotAngle) ||
+			!expectSceneToken(input, "MATERIAL_COUNT")) {
+			ERROR("BaseApp", "loadScene", "Registro de actor incompleto");
+			return false;
+		}
+
+		size_t materialCount = 0;
+		if (!(input >> materialCount) || materialCount > 1024) {
+			ERROR("BaseApp", "loadScene", "Cantidad de materiales invalida");
+			return false;
+		}
+		record.materialParams.reserve(materialCount);
+		for (size_t materialIndex = 0;
+			materialIndex < materialCount;
+			++materialIndex) {
+			MaterialParams params;
+			if (!expectSceneToken(input, "MATERIAL") ||
+				!(input >> params.baseColor.x
+					>> params.baseColor.y
+					>> params.baseColor.z
+					>> params.baseColor.w
+					>> params.metallic
+					>> params.roughness
+					>> params.ao
+					>> params.normalScale
+					>> params.emissiveStrength
+					>> params.alphaCutoff)) {
+				ERROR("BaseApp", "loadScene", "Material de escena incompleto");
+				return false;
+			}
+			if (!isFiniteMaterialParams(params)) {
+				ERROR("BaseApp", "loadScene", "El material contiene valores invalidos");
+				return false;
+			}
+			record.materialParams.push_back(params);
+		}
+
+		if (!expectSceneToken(input, "END_ACTOR")) {
+			ERROR("BaseApp", "loadScene", "Falta END_ACTOR");
+			return false;
+		}
+
+		if (record.sceneIndex != static_cast<int>(actorNumber) ||
+			kind < static_cast<int>(SceneActorKind::Empty) ||
+			kind > static_cast<int>(SceneActorKind::Light)) {
+			ERROR("BaseApp", "loadScene", "Indice o tipo de actor invalido");
+			return false;
+		}
+
+		if (!isFiniteVector(record.position) ||
+			!isFiniteVector(record.rotation) ||
+			!isFiniteVector(record.scale) ||
+			!isFiniteVector(record.lightData.color) ||
+			!isFiniteVector(record.lightData.position) ||
+			!isFiniteVector(record.lightData.direction) ||
+			!std::isfinite(record.lightData.intensity) ||
+			!std::isfinite(record.lightData.range) ||
+			!std::isfinite(record.lightData.innerSpotAngle) ||
+			!std::isfinite(record.lightData.spotAngle)) {
+			ERROR("BaseApp", "loadScene", "El actor contiene valores numericos invalidos");
+			return false;
+		}
+
+		record.kind = static_cast<SceneActorKind>(kind);
+		record.active = active != 0;
+		record.visible = visible != 0;
+		record.castShadow = castShadow != 0;
+		record.receiveShadow = receiveShadow != 0;
+		record.selectable = selectable != 0;
+		record.hasLight = hasLight != 0 ||
+			record.kind == SceneActorKind::Light;
+		record.lightData.type = static_cast<LightType>(
+			lightType < 0 || lightType > 2 ? 0 : lightType);
+		record.lightData.enabled = lightEnabled != 0;
+		record.lightData.castShadow = lightCastShadow != 0;
+		record.followLightPosition = followPosition != 0;
+		record.followLightDirection = followDirection != 0;
+		document.actors.push_back(record);
+	}
+
+	if (!expectSceneToken(input, "END_SCENE")) {
+		ERROR("BaseApp", "loadScene", "Falta END_SCENE");
+		return false;
+	}
+
+	for (const SceneActorRecord& record : document.actors) {
+		if (record.parentIndex < -1 ||
+			record.parentIndex >= static_cast<int>(document.actors.size()) ||
+			record.parentIndex == record.sceneIndex) {
+			ERROR("BaseApp", "loadScene", "Jerarquia de escena invalida");
+			return false;
+		}
+
+		int currentParent = record.parentIndex;
+		for (size_t depth = 0;
+			currentParent >= 0 && depth <= document.actors.size();
+			++depth) {
+			if (currentParent == record.sceneIndex ||
+				depth == document.actors.size()) {
+				ERROR("BaseApp", "loadScene", "Se detecto un ciclo en la jerarquia guardada");
+				return false;
+			}
+			currentParent = document.actors[currentParent].parentIndex;
+		}
+	}
+
+	clearCurrentScene();
+	std::vector<EU::TSharedPointer<Actor>> createdActors;
+	createdActors.reserve(document.actors.size());
+	bool missingResources = false;
+	const std::string sceneDirectory = directoryOfPath(path);
+
+	for (const SceneActorRecord& record : document.actors) {
+		EU::TSharedPointer<Actor> actor;
+		if (record.kind == SceneActorKind::Light || record.hasLight) {
+			actor = spawnLightActor(
+				record.lightData.type,
+				record.name,
+				record.position,
+				record.lightData.color,
+				record.lightData.intensity,
+				record.lightData.range,
+				record.lightData.castShadow);
+		}
+		else if (record.kind == SceneActorKind::Model) {
+			std::string sourcePath = record.sourcePath;
+			const std::string lowerSource = toLowerCopy(sourcePath);
+			const bool builtInCar =
+				lowerSource == toLowerCopy("Assets/Models/AlfaRomeo33Stradale.fbx");
+
+			if (!sourcePath.empty() && !builtInCar && !fileExists(sourcePath) &&
+				!isAbsolutePathString(sourcePath)) {
+				const std::string fromScene = joinPath(sceneDirectory, sourcePath);
+				const std::string fromExecutable = joinPath(
+					getExecutableDirectory(),
+					sourcePath);
+				if (fileExists(fromScene)) sourcePath = fromScene;
+				else if (fileExists(fromExecutable)) sourcePath = fromExecutable;
+			}
+
+			if (!sourcePath.empty()) {
+				actor = spawnActorFromSource(
+					sourcePath,
+					record.name,
+					record.position,
+					record.rotation,
+					record.scale);
+			}
+
+			if (actor.isNull()) {
+				missingResources = true;
+				actor = EU::MakeShared<Actor>(m_device);
+				if (!actor.isNull()) {
+					actor->setName(record.name + " [Recurso faltante]");
+					m_actorSourcePaths[actor.get()] = record.sourcePath;
+				}
+			}
+		}
+		else {
+			actor = EU::MakeShared<Actor>(m_device);
+			if (!actor.isNull()) actor->setName(record.name);
+		}
+
+		if (actor.isNull()) {
+			ERROR("BaseApp", "loadScene", "No se pudo crear un actor de la escena");
+			clearCurrentScene();
+			createDefaultSceneLight();
+			return false;
+		}
+
+		actor->setName(record.name);
+		actor->setActive(record.active);
+		EU::TSharedPointer<Transform> transform =
+			actor->getComponent<Transform>();
+		if (transform) {
+			transform->setTransform(
+				record.position,
+				record.rotation,
+				record.scale);
+		}
+
+		EU::TSharedPointer<MeshRendererComponent> renderer =
+			actor->getComponent<MeshRendererComponent>();
+		if (renderer) {
+			renderer->setVisible(record.visible);
+			renderer->setCastShadow(record.castShadow);
+			renderer->setReceiveShadow(record.receiveShadow);
+			renderer->setSelectable(record.selectable);
+			actor->setCastShadow(record.castShadow);
+
+			const std::vector<MaterialInstance*>& materials =
+				renderer->getMaterialInstances();
+			const size_t restoreCount = (std::min)(
+				materials.size(),
+				record.materialParams.size());
+			for (size_t materialIndex = 0;
+				materialIndex < restoreCount;
+				++materialIndex) {
+				if (materials[materialIndex]) {
+					materials[materialIndex]->getParams() =
+						record.materialParams[materialIndex];
+				}
+			}
+		}
+
+		EU::TSharedPointer<LightComponent> light =
+			actor->getComponent<LightComponent>();
+		if (light && record.hasLight) {
+			light->setType(record.lightData.type);
+			light->setEnabled(record.lightData.enabled);
+			light->setColor(record.lightData.color);
+			light->setIntensity(record.lightData.intensity);
+			light->setRange(record.lightData.range);
+			light->setPosition(record.lightData.position);
+			light->setDirection(record.lightData.direction);
+			light->setSpotAngles(
+				record.lightData.innerSpotAngle,
+				record.lightData.spotAngle);
+			light->setCastShadow(record.lightData.castShadow);
+			light->setFollowTransformPosition(record.followLightPosition);
+			light->setFollowTransformDirection(record.followLightDirection);
+		}
+
+		addActorToScene(actor);
+		createdActors.push_back(actor);
+	}
+
+	for (const SceneActorRecord& record : document.actors) {
+		if (record.parentIndex >= 0) {
+			reparentActor(
+				createdActors[record.sceneIndex],
+				createdActors[record.parentIndex],
+				false);
+		}
+	}
+	m_sceneGraph.validateHierarchy(true);
+
+	m_directionalLightActor.reset();
+	for (const auto& actor : m_actors) {
+		if (actor.isNull()) continue;
+		EU::TSharedPointer<LightComponent> light =
+			actor->getComponent<LightComponent>();
+		if (light && light->getType() == LightType::Directional) {
+			m_directionalLightActor = actor;
+			break;
+		}
+	}
+
+	EU::Vector3 forward = document.cameraForward.normalize();
+	EU::Vector3 up = document.cameraUp.normalize();
+	if (forward.isNearlyZero()) forward = EU::Vector3(0.0f, 0.0f, 1.0f);
+	if (up.isNearlyZero()) up = EU::Vector3(0.0f, 1.0f, 0.0f);
+	m_camera.lookAt(
+		document.cameraPosition,
+		document.cameraPosition + forward,
+		up);
+	m_camera.setPosition(document.cameraPosition);
+	m_camera.updateViewMatrix();
+
+	m_gui.selectedActorIndex =
+		document.selectedActorIndex >= 0 &&
+		document.selectedActorIndex < static_cast<int>(m_actors.size())
+		? document.selectedActorIndex
+		: -1;
+	m_commands.clear();
+	m_autosaveTimer = 0.0f;
+
+	if (recoveredAutosave) {
+		m_currentScenePath.clear();
+		m_savedSceneSignature = 0ull;
+		m_sceneDirty = true;
+		m_gui.m_statusMessage = missingResources
+			? "Autoguardado recuperado con recursos faltantes"
+			: "Autoguardado recuperado. Usa Guardar como...";
+	}
+	else {
+		m_currentScenePath = path;
+		m_savedSceneSignature = computeSceneSignature();
+		m_sceneDirty = false;
+		deleteAutosaveFile();
+		m_gui.m_statusMessage = missingResources
+			? "Escena abierta con recursos faltantes"
+			: "Escena abierta: " + getSceneDisplayName();
+	}
+
+	m_gui.m_sceneDisplayName = getSceneDisplayName();
+	m_gui.m_sceneDirty = m_sceneDirty;
+	MESSAGE("BaseApp", "loadScene", "Escena cargada correctamente");
+	return true;
+}
+
+bool
+BaseApp::loadScene(const std::string& path) {
+	return loadSceneInternal(path, false);
+}
+
+unsigned long long
+BaseApp::computeSceneSignature() const {
+	unsigned long long hash = 1469598103934665603ull;
+	hash = fnv1aValue(hash, m_actors.size());
+
+	std::unordered_map<const Actor*, int> actorIndices;
+	for (int index = 0; index < static_cast<int>(m_actors.size()); ++index) {
+		if (!m_actors[index].isNull()) actorIndices[m_actors[index].get()] = index;
+	}
+
+	for (const auto& actor : m_actors) {
+		const bool valid = !actor.isNull();
+		hash = fnv1aValue(hash, valid);
+		if (!valid) continue;
+		hash = fnv1aString(hash, actor->getName());
+		hash = fnv1aValue(hash, actor->isActive());
+
+		const auto sourceFound = m_actorSourcePaths.find(actor.get());
+		hash = fnv1aString(hash, sourceFound == m_actorSourcePaths.end()
+			? std::string()
+			: sourceFound->second);
+
+		EU::TSharedPointer<Transform> transform = actor->getComponent<Transform>();
+		if (transform) {
+			const EU::Vector3 position = transform->getPosition();
+			const EU::Vector3 rotation = transform->getRotation();
+			const EU::Vector3 scale = transform->getScale();
+			hash = fnv1aValue(hash, position.x);
+			hash = fnv1aValue(hash, position.y);
+			hash = fnv1aValue(hash, position.z);
+			hash = fnv1aValue(hash, rotation.x);
+			hash = fnv1aValue(hash, rotation.y);
+			hash = fnv1aValue(hash, rotation.z);
+			hash = fnv1aValue(hash, scale.x);
+			hash = fnv1aValue(hash, scale.y);
+			hash = fnv1aValue(hash, scale.z);
+		}
+
+		Actor* parent = dynamic_cast<Actor*>(m_sceneGraph.getParent(actor.get()));
+		const auto parentFound = actorIndices.find(parent);
+		const int parentIndex = parentFound == actorIndices.end()
+			? -1
+			: parentFound->second;
+		hash = fnv1aValue(hash, parentIndex);
+
+		EU::TSharedPointer<MeshRendererComponent> renderer =
+			actor->getComponent<MeshRendererComponent>();
+		const bool hasRenderer = renderer && renderer->hasMesh();
+		hash = fnv1aValue(hash, hasRenderer);
+		if (renderer) {
+			hash = fnv1aValue(hash, renderer->isVisible());
+			hash = fnv1aValue(hash, renderer->canCastShadow());
+			hash = fnv1aValue(hash, renderer->canReceiveShadow());
+			hash = fnv1aValue(hash, renderer->isSelectable());
+			for (MaterialInstance* material : renderer->getMaterialInstances()) {
+				if (!material) continue;
+				const MaterialParams& params = material->getParams();
+				hash = fnv1aValue(hash, params.baseColor.x);
+				hash = fnv1aValue(hash, params.baseColor.y);
+				hash = fnv1aValue(hash, params.baseColor.z);
+				hash = fnv1aValue(hash, params.baseColor.w);
+				hash = fnv1aValue(hash, params.metallic);
+				hash = fnv1aValue(hash, params.roughness);
+				hash = fnv1aValue(hash, params.ao);
+				hash = fnv1aValue(hash, params.normalScale);
+				hash = fnv1aValue(hash, params.emissiveStrength);
+				hash = fnv1aValue(hash, params.alphaCutoff);
+			}
+		}
+
+		EU::TSharedPointer<LightComponent> light =
+			actor->getComponent<LightComponent>();
+		const bool hasLight = !light.isNull();
+		hash = fnv1aValue(hash, hasLight);
+		if (light) {
+			const LightData& data = light->getLightData();
+			const int type = static_cast<int>(data.type);
+			hash = fnv1aValue(hash, type);
+			hash = fnv1aAppend(hash, &data.color, sizeof(data.color));
+			hash = fnv1aValue(hash, data.intensity);
+			hash = fnv1aAppend(hash, &data.direction, sizeof(data.direction));
+			hash = fnv1aValue(hash, data.range);
+			hash = fnv1aAppend(hash, &data.position, sizeof(data.position));
+			hash = fnv1aValue(hash, data.innerSpotAngle);
+			hash = fnv1aValue(hash, data.spotAngle);
+			hash = fnv1aValue(hash, data.enabled);
+			hash = fnv1aValue(hash, data.castShadow);
+			hash = fnv1aValue(hash, light->followsTransformPosition());
+			hash = fnv1aValue(hash, light->followsTransformDirection());
+		}
+	}
+	return hash;
+}
+
+void
+BaseApp::updateSceneDirtyState() {
+	const unsigned long long currentSignature = computeSceneSignature();
+	m_sceneDirty = currentSignature != m_savedSceneSignature;
+	m_gui.m_sceneDirty = m_sceneDirty;
+	m_gui.m_sceneDisplayName = getSceneDisplayName();
+	m_recoveryAvailable = fileExists(getAutosaveScenePath());
+	m_gui.m_recoveryAvailable = m_recoveryAvailable;
 }
 
 void
@@ -824,10 +2223,62 @@ BaseApp::update(float deltaTime) {
 		m_initialStateCaptured = true;
 	}
 
+	// Estado de escena visible en la barra superior antes de construir la GUI.
+	updateSceneDirtyState();
+
 	// GUI
 	m_gui.update(m_viewport, m_window);
+
+	// Acciones de archivo. Los dialogos usan OFN_NOCHANGEDIR para no alterar
+	// las rutas relativas de modelos, texturas o shaders del proyecto.
+	{
+		if (m_gui.consumeNewSceneRequest()) {
+			newScene();
+		}
+
+		if (m_gui.consumeOpenSceneRequest()) {
+			std::string scenePath;
+			if (showOpenSceneDialog(scenePath)) {
+				if (!loadScene(scenePath)) {
+					m_gui.m_statusMessage = "No se pudo abrir la escena";
+				}
+			}
+		}
+
+		if (m_gui.consumeSaveSceneAsRequest()) {
+			std::string scenePath;
+			if (showSaveSceneDialog(scenePath)) {
+				if (!saveScene(scenePath)) {
+					m_gui.m_statusMessage = "No se pudo guardar la escena";
+				}
+			}
+		}
+
+		if (m_gui.consumeSaveSceneRequest()) {
+			if (m_currentScenePath.empty()) {
+				std::string scenePath;
+				if (showSaveSceneDialog(scenePath) &&
+					!saveScene(scenePath)) {
+					m_gui.m_statusMessage = "No se pudo guardar la escena";
+				}
+			}
+			else if (!saveScene(m_currentScenePath)) {
+				m_gui.m_statusMessage = "No se pudo guardar la escena";
+			}
+		}
+
+		if (m_gui.consumeRecoverSceneRequest()) {
+			const std::string autosavePath = getAutosaveScenePath();
+			if (!fileExists(autosavePath) ||
+				!loadSceneInternal(autosavePath, true)) {
+				m_gui.m_statusMessage = "No se pudo recuperar el autoguardado";
+			}
+		}
+	}
+
 	m_gui.drawViewportPanel(m_editorViewportPass.getSRV());
 	m_gui.drawViewportGrid(m_camera);
+	m_gui.drawLightGizmos(m_actors, m_camera);
 
 	if (!m_actors.empty() && m_gui.selectedActorIndex >= 0 &&
 		m_gui.selectedActorIndex < (int)m_actors.size()) {
@@ -835,6 +2286,58 @@ BaseApp::update(float deltaTime) {
 		m_gui.editTransform(m_camera, m_window, m_actors[m_gui.selectedActorIndex]);
 	}
 	m_gui.outliner(m_actors);
+
+	// Reparentado solicitado desde el Outliner mediante drag & drop.
+	{
+		int childIndex = -1;
+		int parentIndex = -1;
+		if (m_gui.consumeReparentRequest(childIndex, parentIndex)) {
+			const bool childValid =
+				childIndex >= 0 &&
+				childIndex < static_cast<int>(m_actors.size()) &&
+				!m_actors[childIndex].isNull();
+			const bool parentValid =
+				parentIndex == -1 ||
+				(parentIndex >= 0 &&
+				 parentIndex < static_cast<int>(m_actors.size()) &&
+				 !m_actors[parentIndex].isNull());
+
+			if (childValid && parentValid) {
+				EU::TSharedPointer<Actor> child = m_actors[childIndex];
+				EU::TSharedPointer<Actor> newParent = parentIndex >= 0
+					? m_actors[parentIndex]
+					: EU::TSharedPointer<Actor>();
+
+				Actor* previousParentRaw = dynamic_cast<Actor*>(
+					m_sceneGraph.getParent(child.get()));
+				EU::TSharedPointer<Actor> previousParent =
+					findActorShared(previousParentRaw);
+
+				if (previousParent.get() != newParent.get() &&
+					reparentActor(child, newParent, true)) {
+					m_commands.push(std::unique_ptr<ICommand>(
+						new ReparentActorCommand(
+							this,
+							child,
+							previousParent,
+							newParent)));
+					MESSAGE("BaseApp", "reparentActor",
+						"Jerarquia actualizada desde el Outliner");
+				}
+			}
+		}
+	}
+
+	{
+		EU::TSharedPointer<Actor> selectedActor = getSelectedActor();
+		if (selectedActor) {
+			auto selectedRenderer =
+				selectedActor->getComponent<MeshRendererComponent>();
+			if (selectedRenderer && selectedRenderer->hasMesh()) {
+				m_lastSelectedRenderableActor = selectedActor;
+			}
+		}
+	}
 
 	m_gui.drawGBufferDebugPanel(
 		m_renderPipeline.getGBufferAlbedoMetallicSRV(),
@@ -845,21 +2348,104 @@ BaseApp::update(float deltaTime) {
 		m_renderPipeline.getPreShadowSRV(),
 		m_editorViewportPass.getSRV(),
 		m_renderPipeline.getShadowMapSRV());
-	m_gui.drawLightingPanel(&m_constantBufferStruct.LightDir.x, &m_constantBufferStruct.LightColor.x);
+	if (!m_directionalLightActor.isNull()) {
+		auto mainLight = m_directionalLightActor->getComponent<LightComponent>();
+		if (mainLight) {
+			LightData& lightData = mainLight->getLightData();
+			m_gui.drawLightingPanel(&lightData.direction.x, &lightData.color.x);
+		}
+	}
 	m_gui.drawStatsPanel(deltaTime, m_lastDrawCalls);
 	m_gui.drawTexturePreview();
 	m_gui.drawConsolePanel();
 	m_gui.drawContentBrowser(m_thumbnails);
 
-	// Instanciar modelo desde el Content Browser
+	// Creacion de luces desde el menu Crear o desde la barra superior.
+	{
+		const EU::Vector3 cameraPosition = m_camera.getPosition();
+		const EU::Vector3 cameraForward = m_camera.GetForward().normalize();
+		const EU::Vector3 spawnPosition =
+			cameraPosition + cameraForward * 3.0f;
+
+		auto addRequestedLight = [&](LightType type, const char* baseName) {
+			const std::string name = std::string(baseName) + " " +
+				std::to_string(m_lightNameCounter++);
+			EU::TSharedPointer<Actor> lightActor = spawnLightActor(
+				type,
+				name,
+				spawnPosition,
+				EU::Vector3(1.0f, 1.0f, 1.0f),
+				type == LightType::Directional ? 1.0f : 3.0f,
+				12.0f,
+				false);
+			if (lightActor) {
+				addActorToScene(lightActor);
+				m_gui.selectedActorIndex =
+					static_cast<int>(m_actors.size()) - 1;
+				if (type != LightType::Point &&
+					m_lastSelectedRenderableActor) {
+					aimLightAtActor(
+						lightActor,
+						m_lastSelectedRenderableActor);
+				}
+			}
+		};
+
+		if (m_gui.consumeCreateDirectionalLightRequest()) {
+			addRequestedLight(LightType::Directional, "Directional Light");
+		}
+		if (m_gui.consumeCreatePointLightRequest()) {
+			addRequestedLight(LightType::Point, "Point Light");
+		}
+		if (m_gui.consumeCreateSpotLightRequest()) {
+			addRequestedLight(LightType::Spot, "Spot Light");
+		}
+		if (m_gui.consumeCreateStudioRigRequest()) {
+			createStudioLightRig();
+		}
+
+		if (m_gui.consumeAimLightRequest()) {
+			EU::TSharedPointer<Actor> selectedLight = getSelectedActor();
+			if (selectedLight &&
+				selectedLight->getComponent<LightComponent>() &&
+				m_lastSelectedRenderableActor) {
+				aimLightAtActor(
+					selectedLight,
+					m_lastSelectedRenderableActor);
+			}
+		}
+	}
+
+	// Instanciar el modelo exactamente en el punto donde se solto dentro
+	// del viewport. Si no existe una superficie valida, se usa el plano Y=0.
 	if (m_gui.m_assetSpawnRequested) {
 		m_gui.m_assetSpawnRequested = false;
-		EU::TSharedPointer<Actor> a = loadModelActor(m_gui.m_assetSpawnPath);
-		if (!a.isNull()) {
-			addActorToScene(a);
-			m_commands.push(std::unique_ptr<ICommand>(new SpawnActorCommand(this, a)));
-			m_gui.selectedActorIndex = (int)m_actors.size() - 1;
-			MESSAGE("BaseApp", "loadModelActor", "Modelo instanciado desde Content");
+		EU::TSharedPointer<Actor> actor = loadModelActor(m_gui.m_assetSpawnPath);
+		if (!actor.isNull()) {
+			EU::Vector3 localMinimum;
+			EU::Vector3 localMaximum;
+			EU::Vector3 placementPosition;
+
+			if (getActorAABB(actor, localMinimum, localMaximum) &&
+				getViewportPlacementPosition(
+					m_gui.m_assetSpawnScreenPosition,
+					localMinimum,
+					placementPosition)) {
+
+				auto transform = actor->getComponent<Transform>();
+				if (transform) transform->setPosition(placementPosition);
+			}
+
+			addActorToScene(actor);
+			m_commands.push(std::unique_ptr<ICommand>(
+				new SpawnActorCommand(this, actor)));
+			m_gui.selectedActorIndex = static_cast<int>(m_actors.size()) - 1;
+			m_gui.m_statusMessage = "Modelo importado: " + actor->getName();
+			MESSAGE("BaseApp", "loadModelActor",
+				"Modelo colocado directamente en el viewport");
+		}
+		else {
+			m_gui.m_statusMessage = "No se pudo importar el modelo";
 		}
 	}
 
@@ -1218,16 +2804,37 @@ BaseApp::update(float deltaTime) {
 		}
 	}
 
+	// Deteccion automatica de cambios y autoguardado recuperable.
+	updateSceneDirtyState();
+	if (m_sceneDirty) {
+		m_autosaveTimer += deltaTime;
+		if (m_autosaveTimer >= m_autosaveIntervalSeconds) {
+			if (saveSceneInternal(getAutosaveScenePath(), false)) {
+				m_autosaveTimer = 0.0f;
+				m_recoveryAvailable = true;
+				m_gui.m_recoveryAvailable = true;
+				m_gui.m_statusMessage = "Autoguardado actualizado";
+				MESSAGE("BaseApp", "autosave", "Autoguardado actualizado");
+			}
+		}
+	}
+	else {
+		m_autosaveTimer = 0.0f;
+	}
+
 	m_camera.updateViewMatrix();
 	XMStoreFloat4x4(&m_constantBufferStruct.View, XMMatrixTranspose(m_camera.getView()));
 	XMStoreFloat4x4(&m_constantBufferStruct.Projection, XMMatrixTranspose(m_camera.getProj()));
 	m_constantBufferStruct.CameraPos = m_camera.getPosition();
 
 	if (!m_directionalLightActor.isNull()) {
-		EU::TSharedPointer<LightComponent> lightComponent = m_directionalLightActor->getComponent<LightComponent>();
+		EU::TSharedPointer<LightComponent> lightComponent =
+			m_directionalLightActor->getComponent<LightComponent>();
 		if (lightComponent) {
-			lightComponent->getLightData().direction = m_constantBufferStruct.LightDir;
-			lightComponent->getLightData().color = m_constantBufferStruct.LightColor;
+			const LightData& lightData = lightComponent->getLightData();
+			m_constantBufferStruct.LightDir = lightData.direction;
+			m_constantBufferStruct.LightColor =
+				lightData.color * lightData.intensity;
 		}
 	}
 
@@ -1286,7 +2893,14 @@ BaseApp::destroy() {
 		if (lm) {
 			lm->mesh.destroy();
 			lm->albedo.destroy(); lm->normal.destroy(); lm->metallic.destroy();
-			lm->roughness.destroy(); lm->ao.destroy();
+			lm->roughness.destroy(); lm->ao.destroy(); lm->emissive.destroy();
+			for (std::unique_ptr<LoadedMaterialResources>& material :
+				lm->importedMaterials) {
+				if (material) {
+					material->destroy();
+				}
+			}
+			lm->importedMaterials.clear();
 		}
 	}
 	m_loadedModels.clear();
@@ -1523,6 +3137,86 @@ BaseApp::captureGizmoState(int index, GizmoEditState& out) {
 	return true;
 }
 
+bool
+BaseApp::getViewportRay(
+    const ImVec2& screenPosition,
+    XMFLOAT3& outOrigin,
+    XMFLOAT3& outDirection) const {
+
+    const float viewportWidth = m_gui.m_viewportSize.x;
+    const float viewportHeight = m_gui.m_viewportSize.y;
+    if (viewportWidth < 1.0f || viewportHeight < 1.0f) return false;
+
+    const float mouseX = screenPosition.x - m_gui.m_viewportPos.x;
+    const float mouseY = screenPosition.y - m_gui.m_viewportPos.y;
+    if (mouseX < 0.0f || mouseY < 0.0f ||
+        mouseX > viewportWidth || mouseY > viewportHeight) {
+        return false;
+    }
+
+    const float ndcX = (2.0f * mouseX / viewportWidth) - 1.0f;
+    const float ndcY = 1.0f - (2.0f * mouseY / viewportHeight);
+    const XMMATRIX viewProjection = m_camera.getView() * m_camera.getProj();
+
+    const XMVECTOR determinantCheck = XMMatrixDeterminant(viewProjection);
+    const float determinantValue = XMVectorGetX(determinantCheck);
+    if (!_finite(determinantValue) || fabsf(determinantValue) < 0.000001f) {
+        return false;
+    }
+
+    XMVECTOR determinant;
+    const XMMATRIX inverseViewProjection =
+        XMMatrixInverse(&determinant, viewProjection);
+
+    const XMVECTOR nearPoint = XMVector3TransformCoord(
+        XMVectorSet(ndcX, ndcY, 0.0f, 1.0f),
+        inverseViewProjection);
+    const XMVECTOR farPoint = XMVector3TransformCoord(
+        XMVectorSet(ndcX, ndcY, 1.0f, 1.0f),
+        inverseViewProjection);
+    const XMVECTOR direction =
+        XMVector3Normalize(XMVectorSubtract(farPoint, nearPoint));
+
+    XMStoreFloat3(&outOrigin, nearPoint);
+    XMStoreFloat3(&outDirection, direction);
+    return _finite(outDirection.x) &&
+        _finite(outDirection.y) &&
+        _finite(outDirection.z);
+}
+
+bool
+BaseApp::getViewportPlacementPosition(
+    const ImVec2& screenPosition,
+    const EU::Vector3& localMinimum,
+    EU::Vector3& outPosition) const {
+
+    XMFLOAT3 rayOrigin{};
+    XMFLOAT3 rayDirection{};
+    if (!getViewportRay(screenPosition, rayOrigin, rayDirection)) {
+        return false;
+    }
+
+    float distance = 5.0f;
+    if (fabsf(rayDirection.y) > 0.000001f) {
+        const float floorDistance = -rayOrigin.y / rayDirection.y;
+        if (floorDistance > 0.05f) distance = floorDistance;
+    }
+
+    outPosition = EU::Vector3(
+        rayOrigin.x + rayDirection.x * distance,
+        rayOrigin.y + rayDirection.y * distance - localMinimum.y,
+        rayOrigin.z + rayDirection.z * distance);
+
+    if (m_gui.m_snapEnabled && m_gui.m_snapTranslate > 0.000001f) {
+        const float snap = m_gui.m_snapTranslate;
+        outPosition.x = roundf(outPosition.x / snap) * snap;
+        outPosition.y = roundf(outPosition.y / snap) * snap;
+        outPosition.z = roundf(outPosition.z / snap) * snap;
+    }
+
+    return true;
+}
+
 void
 BaseApp::pickActorFromMouse() {
 	const float viewportX = m_gui.m_viewportPos.x;
@@ -1605,7 +3299,8 @@ BaseApp::pickActorFromMouse() {
 		EU::TSharedPointer<Transform> transform =
 			actor->getComponent<Transform>();
 
-		if (!meshRenderer || !meshRenderer->isVisible() || !transform)
+		if (!meshRenderer || !meshRenderer->isVisible() ||
+			!meshRenderer->isSelectable() || !transform)
 			continue;
 
 		EU::Vector3 localMin;
@@ -1773,25 +3468,98 @@ BaseApp::pickActorFromMouse() {
 		m_gui.selectedActorIndex = closestActorIndex;
 		MESSAGE("BaseApp", "pickActorFromMouse", "Actor seleccionado desde viewport");
 	}
+	else {
+		m_gui.selectedActorIndex = -1;
+	}
 }
 
 void
 BaseApp::addActorToScene(const EU::TSharedPointer<Actor>& actor) {
 	if (actor.isNull()) return;
+
+	for (const auto& existing : m_actors) {
+		if (!existing.isNull() && existing.get() == actor.get()) {
+			return;
+		}
+	}
+
+	actor->setName(makeUniqueActorName(actor->getName(), actor.get()));
 	m_actors.push_back(actor);
 	m_sceneGraph.addEntity(actor.get());
+	m_sceneGraph.validateHierarchy(true);
+}
+
+bool
+BaseApp::reparentActor(
+	const EU::TSharedPointer<Actor>& child,
+	const EU::TSharedPointer<Actor>& parent,
+	bool keepWorldTransform) {
+	if (child.isNull()) return false;
+	if (findActorShared(child.get()).isNull()) return false;
+	if (!parent.isNull() && child.get() == parent.get()) return false;
+	if (!parent.isNull() && findActorShared(parent.get()).isNull()) return false;
+
+	return m_sceneGraph.reparent(
+		child.get(),
+		parent.isNull() ? nullptr : parent.get(),
+		keepWorldTransform);
 }
 
 void
 BaseApp::removeActorFromScene(const EU::TSharedPointer<Actor>& actor) {
 	if (actor.isNull()) return;
-	m_sceneGraph.removeEntity(actor.get());
-	for (size_t i = 0; i < m_actors.size(); ++i) {
-		if (m_actors[i].get() == actor.get()) { m_actors.erase(m_actors.begin() + i); break; }
+
+	int removedIndex = -1;
+	for (int index = 0; index < static_cast<int>(m_actors.size()); ++index) {
+		if (!m_actors[index].isNull() &&
+			m_actors[index].get() == actor.get()) {
+			removedIndex = index;
+			break;
+		}
 	}
-	if (m_gui.selectedActorIndex >= (int)m_actors.size())
-		m_gui.selectedActorIndex = (int)m_actors.size() - 1;
+	if (removedIndex < 0) return;
+
+	Actor* parentRaw = dynamic_cast<Actor*>(
+		m_sceneGraph.getParent(actor.get()));
+	EU::TSharedPointer<Actor> parentActor = findActorShared(parentRaw);
+	const bool removedWasSelected =
+		m_gui.selectedActorIndex == removedIndex;
+
+	if (m_directionalLightActor.get() == actor.get()) {
+		m_directionalLightActor.reset();
+	}
+	if (m_lastSelectedRenderableActor.get() == actor.get()) {
+		m_lastSelectedRenderableActor.reset();
+	}
+
+	m_sceneGraph.removeEntity(actor.get(), true);
+	m_actors.erase(m_actors.begin() + removedIndex);
+
+	if (removedWasSelected) {
+		m_gui.selectedActorIndex = -1;
+		if (!parentActor.isNull()) {
+			for (int index = 0;
+				index < static_cast<int>(m_actors.size());
+				++index) {
+				if (!m_actors[index].isNull() &&
+					m_actors[index].get() == parentActor.get()) {
+					m_gui.selectedActorIndex = index;
+					break;
+				}
+			}
+		}
+	}
+	else if (m_gui.selectedActorIndex > removedIndex) {
+		--m_gui.selectedActorIndex;
+	}
+
+	if (m_gui.selectedActorIndex >= static_cast<int>(m_actors.size())) {
+		m_gui.selectedActorIndex = m_actors.empty()
+			? -1
+			: static_cast<int>(m_actors.size()) - 1;
+	}
 }
+
 
 EU::TSharedPointer<Actor>
 BaseApp::spawnCar(
@@ -1898,7 +3666,6 @@ BaseApp::getActorCpuMeshes(
 void
 BaseApp::duplicateSelected() {
 	const int index = m_gui.selectedActorIndex;
-
 	if (index < 0 ||
 		index >= static_cast<int>(m_actors.size()) ||
 		m_actors[index].isNull()) {
@@ -1909,56 +3676,71 @@ BaseApp::duplicateSelected() {
 	EU::TSharedPointer<Actor> source = m_actors[index];
 	EU::TSharedPointer<Transform> transform =
 		source->getComponent<Transform>();
-
 	if (!transform) return;
 
 	EU::Vector3 position = transform->getPosition();
 	position.x += 1.5f;
 
-	std::string sourcePath;
-	auto sourceIterator = m_actorSourcePaths.find(source.get());
-	if (sourceIterator != m_actorSourcePaths.end())
-		sourcePath = sourceIterator->second;
+	Actor* parentRaw = dynamic_cast<Actor*>(
+		m_sceneGraph.getParent(source.get()));
+	EU::TSharedPointer<Actor> parent = findActorShared(parentRaw);
 
-	EU::TSharedPointer<Actor> duplicated = spawnActorFromSource(
-		sourcePath,
+	EU::TSharedPointer<Actor> duplicated = cloneActor(
+		source,
 		source->getName() + "_copy",
-		position,
-		transform->getRotation(),
-		transform->getScale());
-
+		position);
 	if (duplicated.isNull()) {
 		ERROR("BaseApp", "duplicateSelected", "No se pudo duplicar el actor");
 		return;
 	}
 
 	addActorToScene(duplicated);
+	if (!parent.isNull()) {
+		reparentActor(duplicated, parent, false);
+	}
+
 	m_commands.push(std::unique_ptr<ICommand>(
-		new SpawnActorCommand(this, duplicated)));
-
-	m_gui.selectedActorIndex =
-		static_cast<int>(m_actors.size()) - 1;
-
+		new SpawnActorCommand(this, duplicated, parent)));
+	m_gui.selectedActorIndex = static_cast<int>(m_actors.size()) - 1;
 	MESSAGE("BaseApp", "duplicateSelected", "Actor duplicado");
 }
 
 void
 BaseApp::deleteSelected() {
-	int idx = m_gui.selectedActorIndex;
-	if (idx < 0 || idx >= (int)m_actors.size() || m_actors[idx].isNull()) {
+	const int index = m_gui.selectedActorIndex;
+	if (index < 0 ||
+		index >= static_cast<int>(m_actors.size()) ||
+		m_actors[index].isNull()) {
 		MESSAGE("BaseApp", "deleteSelected", "No hay actor seleccionado");
 		return;
 	}
-	EU::TSharedPointer<Actor> a = m_actors[idx];
-	removeActorFromScene(a);
-	m_commands.push(std::unique_ptr<ICommand>(new DeleteActorCommand(this, a)));
+
+	EU::TSharedPointer<Actor> actor = m_actors[index];
+	Actor* parentRaw = dynamic_cast<Actor*>(
+		m_sceneGraph.getParent(actor.get()));
+	EU::TSharedPointer<Actor> parent = findActorShared(parentRaw);
+
+	std::vector<EU::TSharedPointer<Actor>> children;
+	const std::vector<Entity*>* childEntities =
+		m_sceneGraph.getChildren(actor.get());
+	if (childEntities) {
+		children.reserve(childEntities->size());
+		for (Entity* childEntity : *childEntities) {
+			Actor* childActor = dynamic_cast<Actor*>(childEntity);
+			EU::TSharedPointer<Actor> child = findActorShared(childActor);
+			if (!child.isNull()) children.push_back(child);
+		}
+	}
+
+	removeActorFromScene(actor);
+	m_commands.push(std::unique_ptr<ICommand>(
+		new DeleteActorCommand(this, actor, parent, children)));
 	MESSAGE("BaseApp", "deleteSelected", "Actor eliminado");
 }
 
 void
 BaseApp::copySelected() {
 	const int index = m_gui.selectedActorIndex;
-
 	if (index < 0 ||
 		index >= static_cast<int>(m_actors.size()) ||
 		m_actors[index].isNull()) {
@@ -1969,18 +3751,47 @@ BaseApp::copySelected() {
 	EU::TSharedPointer<Actor> source = m_actors[index];
 	EU::TSharedPointer<Transform> transform =
 		source->getComponent<Transform>();
-
 	if (!transform) return;
 
+	m_clipboard = ActorClipboard();
+	m_clipboard.sourceActor = source;
+	m_clipboard.sourceParent = findActorShared(dynamic_cast<Actor*>(
+		m_sceneGraph.getParent(source.get())));
 	m_clipboard.name = source->getName();
 	m_clipboard.position = transform->getPosition();
 	m_clipboard.rotation = transform->getRotation();
 	m_clipboard.scale = transform->getScale();
+	m_clipboard.actorActive = source->isActive();
+	m_clipboard.castShadow = source->canCastShadow();
 
-	m_clipboard.modelPath.clear();
-	auto sourceIterator = m_actorSourcePaths.find(source.get());
-	if (sourceIterator != m_actorSourcePaths.end())
-		m_clipboard.modelPath = sourceIterator->second;
+	EU::TSharedPointer<LightComponent> light =
+		source->getComponent<LightComponent>();
+	EU::TSharedPointer<MeshRendererComponent> meshRenderer =
+		source->getComponent<MeshRendererComponent>();
+
+	if (light) {
+		m_clipboard.kind = ActorClipboardKind::Light;
+		m_clipboard.lightData = light->getLightData();
+		m_clipboard.followLightPosition =
+			light->followsTransformPosition();
+		m_clipboard.followLightDirection =
+			light->followsTransformDirection();
+	}
+	else if (meshRenderer && meshRenderer->hasMesh()) {
+		m_clipboard.kind = ActorClipboardKind::Model;
+		m_clipboard.visible = meshRenderer->isVisible();
+		m_clipboard.castShadow = meshRenderer->canCastShadow();
+		m_clipboard.receiveShadow = meshRenderer->canReceiveShadow();
+		m_clipboard.selectable = meshRenderer->isSelectable();
+
+		const auto sourceIterator = m_actorSourcePaths.find(source.get());
+		if (sourceIterator != m_actorSourcePaths.end()) {
+			m_clipboard.modelPath = sourceIterator->second;
+		}
+	}
+	else {
+		m_clipboard.kind = ActorClipboardKind::Empty;
+	}
 
 	m_hasClipboard = true;
 	MESSAGE("BaseApp", "copySelected", "Actor copiado al portapapeles");
@@ -1996,27 +3807,104 @@ BaseApp::pasteClipboard() {
 	EU::Vector3 position = m_clipboard.position;
 	position.x += 1.5f;
 
-	EU::TSharedPointer<Actor> pasted = spawnActorFromSource(
-		m_clipboard.modelPath,
-		m_clipboard.name + "_paste",
-		position,
-		m_clipboard.rotation,
-		m_clipboard.scale);
+	EU::TSharedPointer<Actor> pasted;
+	if (!m_clipboard.sourceActor.isNull()) {
+		pasted = cloneActor(
+			m_clipboard.sourceActor,
+			m_clipboard.name + "_paste",
+			position);
+	}
+	else if (m_clipboard.kind == ActorClipboardKind::Light) {
+		pasted = spawnLightActor(
+			m_clipboard.lightData.type,
+			m_clipboard.name + "_paste",
+			position,
+			m_clipboard.lightData.color,
+			m_clipboard.lightData.intensity,
+			m_clipboard.lightData.range,
+			m_clipboard.lightData.castShadow);
+	}
+	else if (m_clipboard.kind == ActorClipboardKind::Model) {
+		pasted = spawnActorFromSource(
+			m_clipboard.modelPath,
+			m_clipboard.name + "_paste",
+			position,
+			m_clipboard.rotation,
+			m_clipboard.scale);
+	}
+	else {
+		pasted = EU::MakeShared<Actor>(m_device);
+		if (!pasted.isNull()) {
+			pasted->setName(m_clipboard.name + "_paste");
+			EU::TSharedPointer<Transform> transform =
+				pasted->getComponent<Transform>();
+			if (transform) {
+				transform->setTransform(
+					position,
+					m_clipboard.rotation,
+					m_clipboard.scale);
+			}
+		}
+	}
 
 	if (pasted.isNull()) {
 		ERROR("BaseApp", "pasteClipboard", "No se pudo pegar el actor");
 		return;
 	}
 
+	pasted->setActive(m_clipboard.actorActive);
+	EU::TSharedPointer<Transform> pastedTransform =
+		pasted->getComponent<Transform>();
+	if (pastedTransform) {
+		pastedTransform->setTransform(
+			position,
+			m_clipboard.rotation,
+			m_clipboard.scale);
+	}
+
+	EU::TSharedPointer<MeshRendererComponent> pastedRenderer =
+		pasted->getComponent<MeshRendererComponent>();
+	if (pastedRenderer) {
+		pastedRenderer->setVisible(m_clipboard.visible);
+		pastedRenderer->setCastShadow(m_clipboard.castShadow);
+		pastedRenderer->setReceiveShadow(m_clipboard.receiveShadow);
+		pastedRenderer->setSelectable(m_clipboard.selectable);
+	}
+
+	EU::TSharedPointer<LightComponent> pastedLight =
+		pasted->getComponent<LightComponent>();
+	if (pastedLight && m_clipboard.kind == ActorClipboardKind::Light) {
+		const LightData& lightData = m_clipboard.lightData;
+		pastedLight->setType(lightData.type);
+		pastedLight->setColor(lightData.color);
+		pastedLight->setIntensity(lightData.intensity);
+		pastedLight->setRange(lightData.range);
+		pastedLight->setDirection(lightData.direction);
+		pastedLight->setSpotAngles(
+			lightData.innerSpotAngle,
+			lightData.spotAngle);
+		pastedLight->setCastShadow(lightData.castShadow);
+		pastedLight->setEnabled(lightData.enabled);
+		pastedLight->setFollowTransformPosition(
+			m_clipboard.followLightPosition);
+		pastedLight->setFollowTransformDirection(
+			m_clipboard.followLightDirection);
+	}
+
 	addActorToScene(pasted);
+	if (!m_clipboard.sourceParent.isNull()) {
+		reparentActor(pasted, m_clipboard.sourceParent, false);
+	}
+
 	m_commands.push(std::unique_ptr<ICommand>(
-		new SpawnActorCommand(this, pasted)));
-
-	m_gui.selectedActorIndex =
-		static_cast<int>(m_actors.size()) - 1;
-
+		new SpawnActorCommand(
+			this,
+			pasted,
+			m_clipboard.sourceParent)));
+	m_gui.selectedActorIndex = static_cast<int>(m_actors.size()) - 1;
 	MESSAGE("BaseApp", "pasteClipboard", "Actor pegado");
 }
+
 
 void
 BaseApp::savePrefabSelected() {
@@ -2186,39 +4074,358 @@ BaseApp::buildTextureThumbnails() {
 }
 
 void
-BaseApp::loadModelTextures(LoadedModel& lm, const std::string& folder) {
-	std::vector<std::string> files = listImageFiles(folder);
-	for (const std::string& f : files) {
-		std::string lower = toLowerCopy(f);
-		std::string baseNoExt = toLowerCopy(stripExt(f));
-		std::string path = folder + "/" + stripExt(f);
-		ExtensionType ext = extFromName(lower);
+BaseApp::loadModelTextures(
+	LoadedModel& loadedModel,
+	const Model3D& importedModel,
+	const std::string& modelPath) {
 
-		int slot = -1; // 0 albedo, 1 normal, 2 metallic, 3 roughness, 4 ao
-		if (containsStr(lower, "basecolor") || containsStr(lower, "albedo") || containsStr(lower, "diffuse")) slot = 0;
-		else if (containsStr(lower, "normal")) slot = 1;
-		else if (containsStr(lower, "roughness")) slot = 3;
-		else if (containsStr(lower, "metallic") || containsStr(lower, "metalness")) slot = 2;
-		else if (containsStr(lower, "occlusion")) slot = 4;
-		else if (endsWith(baseNoExt, "_bc") || endsWith(baseNoExt, "_d") || endsWith(baseNoExt, "_alb")) slot = 0;
-		else if (endsWith(baseNoExt, "_n") || endsWith(baseNoExt, "_nrm")) slot = 1;
-		else if (endsWith(baseNoExt, "_r") || endsWith(baseNoExt, "_rgh")) slot = 3;
-		else if (endsWith(baseNoExt, "_m") || endsWith(baseNoExt, "_met")) slot = 2;
-		else if (endsWith(baseNoExt, "_ao") || endsWith(baseNoExt, "_o")) slot = 4;
+	loadedModel.importedMaterials.clear();
 
-		HRESULT hr;
-		switch (slot) {
-		case 0: hr = lm.albedo.init(m_device, path, ext);    if (SUCCEEDED(hr)) lm.materialInstance.setAlbedo(&lm.albedo); break;
-		case 1: hr = lm.normal.init(m_device, path, ext);    if (SUCCEEDED(hr)) lm.materialInstance.setNormal(&lm.normal); break;
-		case 2: hr = lm.metallic.init(m_device, path, ext);  if (SUCCEEDED(hr)) lm.materialInstance.setMetallic(&lm.metallic); break;
-		case 3: hr = lm.roughness.init(m_device, path, ext); if (SUCCEEDED(hr)) lm.materialInstance.setRoughness(&lm.roughness); break;
-		case 4: hr = lm.ao.init(m_device, path, ext);        if (SUCCEEDED(hr)) lm.materialInstance.setAO(&lm.ao); break;
-		default: break;
-		}
+	const std::string modelName =
+		fileBaseName(modelPath);
+	const std::string modelDirectory =
+		directoryOfPath(modelPath);
+
+	std::vector<std::string> searchRoots;
+
+	auto addSearchRoot =
+		[&searchRoots](const std::string& root) {
+			if (root.empty()) {
+				return;
+			}
+
+			const std::string lowerRoot =
+				toLowerCopy(root);
+
+			for (const std::string& existing :
+				searchRoots) {
+				if (toLowerCopy(existing) ==
+					lowerRoot) {
+					return;
+				}
+			}
+
+			searchRoots.push_back(root);
+		};
+
+	addSearchRoot(modelDirectory);
+	addSearchRoot(
+		joinPath(
+			modelDirectory,
+			"Textures"));
+	addSearchRoot(
+		joinPath(
+			modelDirectory,
+			"textures"));
+	addSearchRoot(
+		joinPath(
+			modelDirectory,
+			"Materials"));
+	addSearchRoot(
+		joinPath(
+			"Assets/Textures",
+			modelName));
+	addSearchRoot("Assets/Textures");
+
+	std::vector<std::string> indexedImages;
+
+	for (size_t rootIndex = 0;
+		rootIndex < searchRoots.size();
+		++rootIndex) {
+
+		// La carpeta global se limita para no recorrer un proyecto enorme.
+		const int depth =
+			toLowerCopy(searchRoots[rootIndex]) ==
+				toLowerCopy("Assets/Textures")
+			? 4
+			: 4;
+
+		collectImagePathsRecursive(
+			searchRoots[rootIndex],
+			depth,
+			indexedImages);
 	}
-	if (!lm.albedo.m_textureFromImg) {
-		lm.materialInstance.setAlbedo(&m_carTextures[CarTexWhite]); // fallback para no quedar negro
-		MESSAGE("BaseApp", "loadModelTextures", "Sin albedo en la carpeta; usando textura fallback");
+
+	std::sort(
+		indexedImages.begin(),
+		indexedImages.end());
+
+	indexedImages.erase(
+		std::unique(
+			indexedImages.begin(),
+			indexedImages.end()),
+		indexedImages.end());
+
+	std::vector<ImportedMaterialInfo>
+		importedMaterials =
+			importedModel.GetImportedMaterials();
+
+	if (importedMaterials.empty()) {
+		importedMaterials.push_back(
+			ImportedMaterialInfo());
+	}
+
+	auto resolveTexture =
+		[&](const std::string& reference,
+			TextureSemantic semantic,
+			const std::string& materialName) {
+
+			std::string resolved =
+				resolveReferencedTexturePath(
+					reference,
+					modelPath,
+					searchRoots,
+					indexedImages);
+
+			if (resolved.empty()) {
+				resolved =
+					findTextureBySemantic(
+						semantic,
+						materialName,
+						modelName,
+						indexedImages);
+			}
+
+			return resolved;
+		};
+
+	auto loadTexture =
+		[this](Texture& destination,
+			const std::string& path) {
+
+			if (path.empty() ||
+				!filePathExists(path)) {
+				return false;
+			}
+
+			const ExtensionType extension =
+				extFromName(
+					toLowerCopy(path));
+
+			const HRESULT result =
+				destination.init(
+					m_device,
+					path,
+					extension);
+
+			return SUCCEEDED(result);
+		};
+
+	for (size_t materialIndex = 0;
+		materialIndex <
+			importedMaterials.size();
+		++materialIndex) {
+
+		const ImportedMaterialInfo& imported =
+			importedMaterials[materialIndex];
+
+		std::unique_ptr<LoadedMaterialResources>
+			resources(
+				new LoadedMaterialResources());
+
+		resources->name =
+			imported.name.empty()
+			? ("Material " +
+				std::to_string(materialIndex))
+			: imported.name;
+
+		const std::string albedoPath =
+			resolveTexture(
+				imported.albedoTexture,
+				TextureSemantic::Albedo,
+				resources->name);
+
+		const std::string normalPath =
+			resolveTexture(
+				imported.normalTexture,
+				TextureSemantic::Normal,
+				resources->name);
+
+		const std::string metallicPath =
+			resolveTexture(
+				imported.metallicTexture,
+				TextureSemantic::Metallic,
+				resources->name);
+
+		const std::string roughnessPath =
+			resolveTexture(
+				imported.roughnessTexture,
+				TextureSemantic::Roughness,
+				resources->name);
+
+		const std::string aoPath =
+			resolveTexture(
+				imported.aoTexture,
+				TextureSemantic::AO,
+				resources->name);
+
+		const std::string emissivePath =
+			resolveTexture(
+				imported.emissiveTexture,
+				TextureSemantic::Emissive,
+				resources->name);
+
+		const bool hasAlbedo =
+			loadTexture(
+				resources->albedo,
+				albedoPath);
+		const bool hasNormal =
+			loadTexture(
+				resources->normal,
+				normalPath);
+		const bool hasMetallic =
+			loadTexture(
+				resources->metallic,
+				metallicPath);
+		const bool hasRoughness =
+			loadTexture(
+				resources->roughness,
+				roughnessPath);
+		const bool hasAO =
+			loadTexture(
+				resources->ao,
+				aoPath);
+		const bool hasEmissive =
+			loadTexture(
+				resources->emissive,
+				emissivePath);
+
+		const std::string lowerMaterialName =
+			toLowerCopy(resources->name);
+
+		const bool transparent =
+			imported.opacity < 0.98f ||
+			containsStr(
+				lowerMaterialName,
+				"glass") ||
+			containsStr(
+				lowerMaterialName,
+				"window") ||
+			containsStr(
+				lowerMaterialName,
+				"transparent") ||
+			containsStr(
+				lowerMaterialName,
+				"lens");
+
+		resources->materialInstance.setMaterial(
+			transparent
+			? &m_transparentPbrMaterial
+			: &m_pbrMaterial);
+
+		resources->materialInstance.setAlbedo(
+			hasAlbedo
+			? &resources->albedo
+			: &m_carTextures[CarTexWhite]);
+
+		resources->materialInstance.setNormal(
+			hasNormal
+			? &resources->normal
+			: &m_carTextures[CarTexFlatNormal]);
+
+		// Para valores constantes se usa una textura blanca y el escalar
+		// del material. Esto evita que un fallback negro anule el valor PBR.
+		resources->materialInstance.setMetallic(
+			hasMetallic
+			? &resources->metallic
+			: &m_carTextures[CarTexMetallicWhite]);
+
+		resources->materialInstance.setRoughness(
+			hasRoughness
+			? &resources->roughness
+			: &m_carTextures[CarTexMetallicWhite]);
+
+		resources->materialInstance.setAO(
+			hasAO
+			? &resources->ao
+			: &m_carTextures[CarTexWhite]);
+
+		resources->materialInstance.setEmissive(
+			hasEmissive
+			? &resources->emissive
+			: &m_carTextures[CarTexEmissiveBlack]);
+
+		MaterialParams& parameters =
+			resources->materialInstance.getParams();
+
+		auto clamp01 = [](float value, float fallback) {
+			if (!std::isfinite(value)) {
+				return fallback;
+			}
+			return (std::max)(0.0f, (std::min)(1.0f, value));
+		};
+
+		const bool intentionallyDark =
+			containsStr(lowerMaterialName, "black") ||
+			containsStr(lowerMaterialName, "tire") ||
+			containsStr(lowerMaterialName, "rubber") ||
+			containsStr(lowerMaterialName, "undercarriage") ||
+			containsStr(lowerMaterialName, "shadow");
+
+		XMFLOAT4 safeBaseColor(
+			clamp01(imported.baseColor.x, 1.0f),
+			clamp01(imported.baseColor.y, 1.0f),
+			clamp01(imported.baseColor.z, 1.0f),
+			clamp01(imported.opacity, 1.0f));
+
+		// Una textura de albedo ya contiene el color. Multiplicarla por el
+		// Diffuse del FBX (que frecuentemente es negro) oscurecia todo.
+		if (hasAlbedo) {
+			safeBaseColor.x = 1.0f;
+			safeBaseColor.y = 1.0f;
+			safeBaseColor.z = 1.0f;
+		}
+		else {
+			const float luminance =
+				safeBaseColor.x * 0.2126f +
+				safeBaseColor.y * 0.7152f +
+				safeBaseColor.z * 0.0722f;
+
+			if (luminance < 0.025f && !intentionallyDark) {
+				safeBaseColor.x = 0.72f;
+				safeBaseColor.y = 0.72f;
+				safeBaseColor.z = 0.72f;
+			}
+		}
+
+		parameters.baseColor = safeBaseColor;
+		parameters.metallic = hasMetallic
+			? 1.0f
+			: clamp01(imported.metallic, 0.0f);
+		parameters.roughness = hasRoughness
+			? 1.0f
+			: (std::max)(
+				0.05f,
+				clamp01(imported.roughness, 0.55f));
+		parameters.ao = 1.0f;
+		parameters.normalScale = hasNormal ? 1.0f : 0.0f;
+		parameters.emissiveStrength = hasEmissive ? 1.0f : 0.0f;
+		parameters.alphaCutoff = transparent ? 0.0f : 0.5f;
+
+		MESSAGE(
+			"BaseApp",
+			"loadModelTextures",
+			L"Material importado: "
+			<< std::wstring(
+				resources->name.begin(),
+				resources->name.end())
+			<< L" | Albedo: "
+			<< (hasAlbedo
+				? L"OK"
+				: L"fallback")
+			<< L" | Normal: "
+			<< (hasNormal
+				? L"OK"
+				: L"fallback"));
+
+		loadedModel.importedMaterials.push_back(
+			std::move(resources));
+	}
+
+	if (!loadedModel.importedMaterials.empty()) {
+		loadedModel.materialInstance =
+			loadedModel.importedMaterials[0]->
+				materialInstance;
 	}
 }
 
@@ -2248,7 +4455,7 @@ BaseApp::loadModelActor(const std::string& modelPath) {
 		if (FAILED(hr)) { ERROR("BaseApp", "loadModelActor", "Fallo index buffer"); return EU::TSharedPointer<Actor>(); }
 		sm.indexCount = mc.m_numIndex;
 		sm.startIndex = 0;
-		sm.materialSlot = 0;
+		sm.materialSlot = mc.m_materialSlot;
 		lm->mesh.getSubmeshes().push_back(std::move(sm));
 	}
 	lm->localMin = EU::Vector3(1e9f, 1e9f, 1e9f);
@@ -2275,15 +4482,18 @@ BaseApp::loadModelActor(const std::string& modelPath) {
 
 	lm->materialInstance.setMaterial(&lm->material);
 	lm->materialInstance.getParams().baseColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	lm->materialInstance.getParams().metallic = 1.0f;
-	lm->materialInstance.getParams().roughness = 1.0f;
+	lm->materialInstance.getParams().metallic = 0.0f;
+	lm->materialInstance.getParams().roughness = 0.55f;
 	lm->materialInstance.getParams().ao = 1.0f;
-	lm->materialInstance.getParams().normalScale = 1.0f;
-	lm->materialInstance.getParams().emissiveStrength = 1.0f;
+	lm->materialInstance.getParams().normalScale = 0.0f;
+	lm->materialInstance.getParams().emissiveStrength = 0.0f;
 	lm->materialInstance.getParams().alphaCutoff = 0.5f;
 
 	std::string modelName = fileBaseName(modelPath);
-	loadModelTextures(*lm, "Assets/Textures/" + modelName);
+	loadModelTextures(
+		*lm,
+		model,
+		modelPath);
 
 	EU::TSharedPointer<Actor> a = EU::MakeShared<Actor>(m_device);
 	if (a.isNull()) return a;
@@ -2293,7 +4503,30 @@ BaseApp::loadModelActor(const std::string& modelPath) {
 	EU::TSharedPointer<MeshRendererComponent> mr = a->getComponent<MeshRendererComponent>();
 	if (!mr) { mr = EU::MakeShared<MeshRendererComponent>(); a->addComponent(mr); }
 	mr->setMesh(&lm->mesh);
-	mr->setMaterialInstance(&lm->materialInstance);
+
+	std::vector<MaterialInstance*> materialPointers;
+	materialPointers.reserve(
+		lm->importedMaterials.size());
+
+	for (const std::unique_ptr<LoadedMaterialResources>&
+		materialResources :
+		lm->importedMaterials) {
+
+		materialPointers.push_back(
+			materialResources
+			? &materialResources->materialInstance
+			: &lm->materialInstance);
+	}
+
+	if (!materialPointers.empty()) {
+		mr->setMaterialInstances(
+			materialPointers);
+	}
+	else {
+		mr->setMaterialInstance(
+			&lm->materialInstance);
+	}
+
 	mr->setVisible(true);
 	mr->setCastShadow(true);
 
@@ -2315,4 +4548,356 @@ BaseApp::getActorAABB(const EU::TSharedPointer<Actor>& actor, EU::Vector3& outMi
 		if (lm && &lm->mesh == mesh) { outMin = lm->localMin; outMax = lm->localMax; return true; }
 	}
 	return false;
+}
+
+EU::TSharedPointer<Actor>
+BaseApp::getSelectedActor() const {
+    if (m_gui.selectedActorIndex < 0 ||
+        m_gui.selectedActorIndex >= static_cast<int>(m_actors.size())) {
+        return EU::TSharedPointer<Actor>();
+    }
+    return m_actors[m_gui.selectedActorIndex];
+}
+
+EU::TSharedPointer<Actor>
+BaseApp::findActorShared(Actor* actor) const {
+    if (!actor) return EU::TSharedPointer<Actor>();
+
+    for (const auto& candidate : m_actors) {
+        if (!candidate.isNull() && candidate.get() == actor) {
+            return candidate;
+        }
+    }
+    return EU::TSharedPointer<Actor>();
+}
+
+std::string
+BaseApp::makeUniqueActorName(
+    const std::string& requestedName,
+    const Actor* ignoredActor) const {
+    const std::string baseName = requestedName.empty()
+        ? "Actor"
+        : requestedName;
+
+    auto nameExists = [&](const std::string& candidateName) {
+        for (const auto& actor : m_actors) {
+            if (actor.isNull() || actor.get() == ignoredActor) continue;
+            if (actor->getName() == candidateName) return true;
+        }
+        return false;
+    };
+
+    if (!nameExists(baseName)) return baseName;
+
+    for (unsigned int suffix = 2; suffix < 100000; ++suffix) {
+        const std::string candidate =
+            baseName + " (" + std::to_string(suffix) + ")";
+        if (!nameExists(candidate)) return candidate;
+    }
+
+    return baseName + "_unique";
+}
+
+EU::TSharedPointer<Actor>
+BaseApp::cloneActor(
+    const EU::TSharedPointer<Actor>& source,
+    const std::string& newName,
+    const EU::Vector3& newPosition) {
+    if (source.isNull()) return EU::TSharedPointer<Actor>();
+
+    EU::TSharedPointer<Transform> sourceTransform =
+        source->getComponent<Transform>();
+    if (!sourceTransform) return EU::TSharedPointer<Actor>();
+
+    EU::TSharedPointer<Actor> clone;
+    EU::TSharedPointer<LightComponent> sourceLight =
+        source->getComponent<LightComponent>();
+    EU::TSharedPointer<MeshRendererComponent> sourceRenderer =
+        source->getComponent<MeshRendererComponent>();
+
+    if (sourceLight) {
+        const LightData& data = sourceLight->getLightData();
+        clone = spawnLightActor(
+            data.type,
+            newName,
+            newPosition,
+            data.color,
+            data.intensity,
+            data.range,
+            data.castShadow);
+
+        if (!clone.isNull()) {
+            EU::TSharedPointer<LightComponent> clonedLight =
+                clone->getComponent<LightComponent>();
+            if (clonedLight) {
+                clonedLight->setEnabled(data.enabled);
+                clonedLight->setDirection(data.direction);
+                clonedLight->setSpotAngles(
+                    data.innerSpotAngle,
+                    data.spotAngle);
+                clonedLight->setCastShadow(data.castShadow);
+                clonedLight->setFollowTransformPosition(
+                    sourceLight->followsTransformPosition());
+                clonedLight->setFollowTransformDirection(
+                    sourceLight->followsTransformDirection());
+            }
+        }
+    }
+    else {
+        clone = EU::MakeShared<Actor>(m_device);
+        if (!clone.isNull()) {
+            clone->setName(newName);
+
+            if (sourceRenderer && sourceRenderer->hasMesh()) {
+                EU::TSharedPointer<MeshRendererComponent> clonedRenderer =
+                    clone->getComponent<MeshRendererComponent>();
+                if (!clonedRenderer) {
+                    clonedRenderer = EU::MakeShared<MeshRendererComponent>();
+                    clone->addComponent(clonedRenderer);
+                }
+
+                clonedRenderer->setMesh(sourceRenderer->getMesh());
+                clonedRenderer->setMaterialInstances(
+                    sourceRenderer->getMaterialInstances());
+                clonedRenderer->setVisible(sourceRenderer->isVisible());
+                clonedRenderer->setCastShadow(
+                    sourceRenderer->canCastShadow());
+                clonedRenderer->setReceiveShadow(
+                    sourceRenderer->canReceiveShadow());
+                clonedRenderer->setSelectable(
+                    sourceRenderer->isSelectable());
+            }
+
+            const auto sourcePathIterator =
+                m_actorSourcePaths.find(source.get());
+            if (sourcePathIterator != m_actorSourcePaths.end()) {
+                m_actorSourcePaths[clone.get()] = sourcePathIterator->second;
+            }
+        }
+    }
+
+    if (clone.isNull()) return clone;
+
+    clone->setName(newName);
+    clone->setActive(source->isActive());
+    clone->setCastShadow(source->canCastShadow());
+
+    EU::TSharedPointer<Transform> clonedTransform =
+        clone->getComponent<Transform>();
+    if (clonedTransform) {
+        clonedTransform->setTransform(
+            newPosition,
+            sourceTransform->getRotation(),
+            sourceTransform->getScale());
+    }
+
+    return clone;
+}
+
+
+EU::TSharedPointer<Actor>
+BaseApp::spawnLightActor(
+    LightType type,
+    const std::string& name,
+    const EU::Vector3& position,
+    const EU::Vector3& color,
+    float intensity,
+    float range,
+    bool castShadow) {
+    EU::TSharedPointer<Actor> actor = EU::MakeShared<Actor>(m_device);
+    if (actor.isNull()) {
+        ERROR("BaseApp", "spawnLightActor", "No se pudo crear el actor de luz");
+        return actor;
+    }
+
+    actor->setName(name);
+
+    EU::TSharedPointer<Transform> transform = actor->getComponent<Transform>();
+    if (transform) {
+        transform->setPosition(position);
+    }
+
+    EU::TSharedPointer<LightComponent> lightComponent =
+        actor->getComponent<LightComponent>();
+    if (!lightComponent) {
+        lightComponent = EU::MakeShared<LightComponent>(type);
+        actor->addComponent(lightComponent);
+    }
+
+    lightComponent->setType(type);
+    lightComponent->setColor(color);
+    lightComponent->setIntensity(intensity);
+    lightComponent->setRange(range);
+    lightComponent->setCastShadow(castShadow);
+    lightComponent->setEnabled(true);
+    lightComponent->setFollowTransformPosition(type != LightType::Directional);
+    lightComponent->setFollowTransformDirection(false);
+
+    if (type == LightType::Spot) {
+        lightComponent->setSpotAngles(20.0f, 35.0f);
+    }
+
+    return actor;
+}
+
+void
+BaseApp::aimLightAtActor(
+    const EU::TSharedPointer<Actor>& lightActor,
+    const EU::TSharedPointer<Actor>& targetActor) {
+    if (lightActor.isNull() || targetActor.isNull()) {
+        return;
+    }
+
+    EU::TSharedPointer<LightComponent> lightComponent =
+        lightActor->getComponent<LightComponent>();
+    EU::TSharedPointer<Transform> lightTransform =
+        lightActor->getComponent<Transform>();
+    EU::TSharedPointer<Transform> targetTransform =
+        targetActor->getComponent<Transform>();
+
+    if (!lightComponent || !lightTransform || !targetTransform) {
+        return;
+    }
+
+    EU::Vector3 localMinimum;
+    EU::Vector3 localMaximum;
+    if (!getActorAABB(targetActor, localMinimum, localMaximum)) {
+        return;
+    }
+
+    const XMVECTOR localCenter = XMVectorSet(
+        (localMinimum.x + localMaximum.x) * 0.5f,
+        (localMinimum.y + localMaximum.y) * 0.5f,
+        (localMinimum.z + localMaximum.z) * 0.5f,
+        1.0f);
+    const XMVECTOR targetWorldCenter = XMVector3TransformCoord(
+        localCenter,
+        targetTransform->worldMatrix);
+
+    XMFLOAT3 targetPosition{};
+    XMStoreFloat3(&targetPosition, targetWorldCenter);
+
+    const EU::Vector3 direction =
+        EU::Vector3(targetPosition.x, targetPosition.y, targetPosition.z) -
+        lightTransform->getPosition();
+
+    if (!direction.isNearlyZero()) {
+        lightComponent->setDirection(direction);
+        lightComponent->setFollowTransformDirection(false);
+        MESSAGE("BaseApp", "aimLightAtActor", "Luz apuntada al modelo seleccionado");
+    }
+}
+
+void
+BaseApp::createStudioLightRig() {
+    EU::TSharedPointer<Actor> target = m_lastSelectedRenderableActor;
+    if (target.isNull()) {
+        target = getSelectedActor();
+    }
+
+    if (target.isNull() ||
+        !target->getComponent<MeshRendererComponent>()) {
+        ERROR("BaseApp", "createStudioLightRig",
+            "Selecciona primero un modelo para crear el rig de estudio");
+        return;
+    }
+
+    EU::Vector3 localMinimum;
+    EU::Vector3 localMaximum;
+    EU::TSharedPointer<Transform> targetTransform =
+        target->getComponent<Transform>();
+    if (!targetTransform ||
+        !getActorAABB(target, localMinimum, localMaximum)) {
+        ERROR("BaseApp", "createStudioLightRig",
+            "No se pudo calcular el tamano del modelo seleccionado");
+        return;
+    }
+
+    const XMVECTOR localCenter = XMVectorSet(
+        (localMinimum.x + localMaximum.x) * 0.5f,
+        (localMinimum.y + localMaximum.y) * 0.5f,
+        (localMinimum.z + localMaximum.z) * 0.5f,
+        1.0f);
+    const XMVECTOR worldCenterVector = XMVector3TransformCoord(
+        localCenter,
+        targetTransform->worldMatrix);
+
+    XMFLOAT3 worldCenterValues{};
+    XMStoreFloat3(&worldCenterValues, worldCenterVector);
+    const EU::Vector3 center(
+        worldCenterValues.x,
+        worldCenterValues.y,
+        worldCenterValues.z);
+
+    const EU::Vector3 extents(
+        (localMaximum.x - localMinimum.x) * 0.5f,
+        (localMaximum.y - localMinimum.y) * 0.5f,
+        (localMaximum.z - localMinimum.z) * 0.5f);
+    const EU::Vector3 targetScale = targetTransform->getScale();
+    float radius = (std::max)(
+        extents.x * EU::abs(targetScale.x),
+        (std::max)(
+            extents.y * EU::abs(targetScale.y),
+            extents.z * EU::abs(targetScale.z)));
+    radius = (std::max)(radius, 1.0f);
+
+    struct StudioLightDescription {
+        const char* name;
+        EU::Vector3 offset;
+        EU::Vector3 color;
+        float intensity;
+        bool castShadow;
+    };
+
+    const StudioLightDescription descriptions[3] = {
+        {
+            "Studio Key Light",
+            EU::Vector3(-1.6f, 1.8f, -1.5f),
+            EU::Vector3(1.0f, 0.86f, 0.72f),
+            4.5f,
+            true
+        },
+        {
+            "Studio Fill Light",
+            EU::Vector3(1.7f, 0.9f, -1.1f),
+            EU::Vector3(0.72f, 0.86f, 1.0f),
+            2.2f,
+            false
+        },
+        {
+            "Studio Rim Light",
+            EU::Vector3(0.2f, 1.5f, 1.9f),
+            EU::Vector3(0.78f, 0.92f, 1.0f),
+            3.2f,
+            false
+        }
+    };
+
+    int firstCreatedIndex = -1;
+    for (const StudioLightDescription& description : descriptions) {
+        const EU::Vector3 lightPosition = center +
+            description.offset * radius;
+        EU::TSharedPointer<Actor> lightActor = spawnLightActor(
+            LightType::Spot,
+            description.name,
+            lightPosition,
+            description.color,
+            description.intensity,
+            radius * 6.0f,
+            description.castShadow);
+
+        if (lightActor) {
+            addActorToScene(lightActor);
+            if (firstCreatedIndex < 0) {
+                firstCreatedIndex = static_cast<int>(m_actors.size()) - 1;
+            }
+            aimLightAtActor(lightActor, target);
+        }
+    }
+
+    if (firstCreatedIndex >= 0) {
+        m_gui.selectedActorIndex = firstCreatedIndex;
+        MESSAGE("BaseApp", "createStudioLightRig",
+            "Rig Key, Fill y Rim creado alrededor del modelo");
+    }
 }

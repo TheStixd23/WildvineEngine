@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "Prerequisites.h"
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui.h"
@@ -53,6 +53,7 @@ public:
     void drawViewportPanel(ID3D11ShaderResourceView* viewportSRV);
     void drawViewportGrid(Camera& cam);
     void drawEditorDockspace();
+    void drawEditorStatusBar();
 
     void drawRenderDebugPanel(ID3D11ShaderResourceView* preShadowSRV,
         ID3D11ShaderResourceView* viewportSRV,
@@ -75,6 +76,72 @@ public:
     bool consumeFocusRequest() { bool r = m_focusRequested; m_focusRequested = false; return r; }
     bool consumeFitRequest() { bool r = m_fitRequested;   m_fitRequested = false; return r; }
 
+    bool consumeCreateDirectionalLightRequest() {
+        bool result = m_createDirectionalLightRequested;
+        m_createDirectionalLightRequested = false;
+        return result;
+    }
+    bool consumeCreatePointLightRequest() {
+        bool result = m_createPointLightRequested;
+        m_createPointLightRequested = false;
+        return result;
+    }
+    bool consumeCreateSpotLightRequest() {
+        bool result = m_createSpotLightRequested;
+        m_createSpotLightRequested = false;
+        return result;
+    }
+    bool consumeCreateStudioRigRequest() {
+        bool result = m_createStudioRigRequested;
+        m_createStudioRigRequested = false;
+        return result;
+    }
+    bool consumeAimLightRequest() {
+        bool result = m_aimLightRequested;
+        m_aimLightRequested = false;
+        return result;
+    }
+
+    bool consumeReparentRequest(int& childIndex, int& parentIndex) {
+        if (!m_reparentRequested) {
+            return false;
+        }
+
+        childIndex = m_reparentChildIndex;
+        parentIndex = m_reparentParentIndex;
+        m_reparentRequested = false;
+        m_reparentChildIndex = -1;
+        m_reparentParentIndex = -1;
+        return true;
+    }
+
+
+
+    bool consumeNewSceneRequest() {
+        bool result = m_newSceneRequested;
+        m_newSceneRequested = false;
+        return result;
+    }
+    bool consumeOpenSceneRequest() {
+        bool result = m_openSceneRequested;
+        m_openSceneRequested = false;
+        return result;
+    }
+    bool consumeSaveSceneRequest() {
+        bool result = m_saveSceneRequested;
+        m_saveSceneRequested = false;
+        return result;
+    }
+    bool consumeSaveSceneAsRequest() {
+        bool result = m_saveSceneAsRequested;
+        m_saveSceneAsRequested = false;
+        return result;
+    }
+    bool consumeRecoverSceneRequest() {
+        bool result = m_recoverSceneRequested;
+        m_recoverSceneRequested = false;
+        return result;
+    }
 
     bool consumeUndoRequest() { bool r = m_undoRequested; m_undoRequested = false; return r; }
     bool consumeRedoRequest() { bool r = m_redoRequested; m_redoRequested = false; return r; }
@@ -85,6 +152,13 @@ private:
     ImDrawList* m_viewportDrawList = nullptr;
     bool m_viewportActive = false;
     bool m_dockLayoutInitialized = false;
+    bool m_showUnsavedChangesPopup = false;
+    int m_pendingSceneAction = 0;
+
+    void requestSceneAction(int action);
+    void dispatchPendingSceneAction();
+    void drawUnsavedChangesPopup();
+
 
 public:
     bool m_isUsingGizmo = false;
@@ -119,6 +193,15 @@ public:
     bool  m_focusRequested = false;
     bool  m_fitRequested = false;
 
+    bool m_newSceneRequested = false;
+    bool m_openSceneRequested = false;
+    bool m_saveSceneRequested = false;
+    bool m_saveSceneAsRequested = false;
+    bool m_recoverSceneRequested = false;
+    bool m_recoveryAvailable = false;
+    bool m_sceneDirty = false;
+    std::string m_sceneDisplayName = "Sin titulo";
+
     bool m_undoRequested = false;
     bool m_redoRequested = false;
 
@@ -129,10 +212,47 @@ public:
     bool m_savePrefabRequested = false;
     bool m_loadPrefabRequested = false;
 
+    bool m_createDirectionalLightRequested = false;
+    bool m_createPointLightRequested = false;
+    bool m_createSpotLightRequested = false;
+    bool m_createStudioRigRequested = false;
+    bool m_aimLightRequested = false;
+
+    // Solicitud generada por drag & drop en la jerarquia.
+    // parentIndex == -1 significa mover el actor a la raiz de la escena.
+    bool m_reparentRequested = false;
+    int m_reparentChildIndex = -1;
+    int m_reparentParentIndex = -1;
+
     std::string m_assetSpawnPath;
+    ImVec2 m_assetSpawnScreenPosition = ImVec2(0.0f, 0.0f);
     bool m_assetSpawnRequested = false;
+
+    // Estado visual del editor. Los paneles tecnicos permanecen ocultos
+    // por defecto para dar prioridad al viewport y evitar una interfaz saturada.
+    bool m_showOutliner = true;
+    bool m_showInspector = true;
+    bool m_showContentBrowser = true;
+    bool m_showConsole = true;
+    bool m_showPerformance = true;
+    bool m_showLightingPanel = false;
+    bool m_showRenderPanel = false;
+    bool m_showGBufferPanel = false;
+    bool m_showViewportOverlay = true;
+
+    ImGuiTextFilter m_assetFilter;
+    float m_assetThumbnailSize = 86.0f;
+    int m_requestedContentTab = -1;
+    std::string m_selectedAssetName;
+
+    float m_cachedFps = 0.0f;
+    float m_cachedFrameMs = 0.0f;
+    unsigned int m_cachedDrawCalls = 0;
+    unsigned int m_cachedActorCount = 0;
+    std::string m_statusMessage = "Listo";
     
     void drawSelectionOutline(Camera& cam, const EU::Vector3& localMin, const EU::Vector3& localMax, const XMMATRIX& world);
+    void drawLightGizmos(const std::vector<EU::TSharedPointer<Actor>>& actors, Camera& camera);
 
 
 
