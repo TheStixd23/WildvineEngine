@@ -13,6 +13,8 @@
 #include "Rendering/Frustum.h"
 #include "Rendering/Octree.h"
 #include "SceneGraph/HierarchyComponent.h"
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <string>
 #include <vector>
@@ -1837,17 +1839,331 @@ void GUI::drawFrustumCullingDebug(
                     projected[cornerIndex]);
             }
 
-            for (int edgeIndex = 0; edgeIndex < 12; ++edgeIndex) {
-                const int a = edges[edgeIndex][0];
-                const int b = edges[edgeIndex][1];
+            auto drawFrustumEdge = [&](
+                int a,
+                int b,
+                ImU32 color,
+                float thickness) {
+
                 if (!valid[a] || !valid[b]) {
-                    continue;
+                    return;
                 }
 
+                // Sombra exterior para que el volumen siga siendo legible
+                // tanto sobre el cielo como sobre geometria clara.
                 m_viewportDrawList->AddLine(
                     projected[a], projected[b],
-                    IM_COL32(255, 255, 255, 190),
-                    2.0f);
+                    IM_COL32(0, 0, 0, 175),
+                    thickness + 2.5f);
+                m_viewportDrawList->AddLine(
+                    projected[a], projected[b],
+                    color,
+                    thickness);
+            };
+
+            auto averageWorld = [&](int a, int b, int c, int d) {
+                return EU::Vector3(
+                    (corners[a].x + corners[b].x + corners[c].x + corners[d].x) * 0.25f,
+                    (corners[a].y + corners[b].y + corners[c].y + corners[d].y) * 0.25f,
+                    (corners[a].z + corners[b].z + corners[c].z + corners[d].z) * 0.25f);
+            };
+
+            auto distanceWorld = [&](const EU::Vector3& a, const EU::Vector3& b) {
+                const float dx = a.x - b.x;
+                const float dy = a.y - b.y;
+                const float dz = a.z - b.z;
+                return std::sqrt(dx * dx + dy * dy + dz * dz);
+            };
+
+            const int nearFace[4] = { 0, 1, 3, 2 };
+            const int farFace[4] = { 4, 5, 7, 6 };
+            const int sideFaces[4][4] = {
+                { 0, 2, 6, 4 }, // izquierda
+                { 1, 3, 7, 5 }, // derecha
+                { 0, 1, 5, 4 }, // inferior
+                { 2, 3, 7, 6 }  // superior
+            };
+
+            if (m_freezeFrustumDebug) {
+                // El frustum congelado se representa como volumen, no solo
+                // como wireframe. El relleno es deliberadamente tenue para
+                // no ocultar la escena que se esta usando como referencia.
+                for (int faceIndex = 0; faceIndex < 4; ++faceIndex) {
+                    ImVec2 facePoints[4]{};
+                    bool faceValid = true;
+                    for (int pointIndex = 0; pointIndex < 4; ++pointIndex) {
+                        const int cornerIndex = sideFaces[faceIndex][pointIndex];
+                        facePoints[pointIndex] = projected[cornerIndex];
+                        faceValid = faceValid && valid[cornerIndex];
+                    }
+                    if (faceValid) {
+                        m_viewportDrawList->AddConvexPolyFilled(
+                            facePoints,
+                            4,
+                            IM_COL32(75, 175, 255, 20));
+                    }
+                }
+
+                ImVec2 nearPoints[4]{};
+                ImVec2 farPoints[4]{};
+                bool nearValid = true;
+                bool farValid = true;
+                for (int pointIndex = 0; pointIndex < 4; ++pointIndex) {
+                    nearPoints[pointIndex] = projected[nearFace[pointIndex]];
+                    farPoints[pointIndex] = projected[farFace[pointIndex]];
+                    nearValid = nearValid && valid[nearFace[pointIndex]];
+                    farValid = farValid && valid[farFace[pointIndex]];
+                }
+
+                if (nearValid) {
+                    m_viewportDrawList->AddConvexPolyFilled(
+                        nearPoints,
+                        4,
+                        IM_COL32(255, 188, 70, 42));
+                }
+                if (farValid) {
+                    m_viewportDrawList->AddConvexPolyFilled(
+                        farPoints,
+                        4,
+                        IM_COL32(70, 210, 255, 30));
+                }
+
+                // Near en amarillo, Far en cian y aristas laterales azul claro.
+                static const int nearEdges[4][2] = {
+                    {0,1},{1,3},{3,2},{2,0}
+                };
+                static const int farEdges[4][2] = {
+                    {4,5},{5,7},{7,6},{6,4}
+                };
+                static const int sideEdges[4][2] = {
+                    {0,4},{1,5},{2,6},{3,7}
+                };
+
+                for (int edgeIndex = 0; edgeIndex < 4; ++edgeIndex) {
+                    drawFrustumEdge(
+                        nearEdges[edgeIndex][0],
+                        nearEdges[edgeIndex][1],
+                        IM_COL32(255, 196, 72, 255),
+                        3.0f);
+                    drawFrustumEdge(
+                        farEdges[edgeIndex][0],
+                        farEdges[edgeIndex][1],
+                        IM_COL32(75, 220, 255, 250),
+                        3.0f);
+                    drawFrustumEdge(
+                        sideEdges[edgeIndex][0],
+                        sideEdges[edgeIndex][1],
+                        IM_COL32(188, 226, 255, 235),
+                        2.25f);
+                }
+
+                // Los ocho vertices ayudan a percibir la profundidad incluso
+                // cuando se observa el frustum casi de perfil.
+                for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex) {
+                    if (!valid[cornerIndex]) continue;
+
+                    const bool nearCorner = cornerIndex < 4;
+                    const ImU32 pointColor = nearCorner
+                        ? IM_COL32(255, 205, 90, 255)
+                        : IM_COL32(95, 225, 255, 255);
+
+                    m_viewportDrawList->AddCircleFilled(
+                        projected[cornerIndex],
+                        4.0f,
+                        IM_COL32(0, 0, 0, 210));
+                    m_viewportDrawList->AddCircleFilled(
+                        projected[cornerIndex],
+                        2.6f,
+                        pointColor);
+                }
+
+                const EU::Vector3 nearCenter = averageWorld(0, 1, 2, 3);
+                const EU::Vector3 farCenter = averageWorld(4, 5, 6, 7);
+                ImVec2 nearCenterScreen{};
+                ImVec2 farCenterScreen{};
+                const bool nearCenterValid = projectWorld(
+                    nearCenter,
+                    nearCenterScreen);
+                const bool farCenterValid = projectWorld(
+                    farCenter,
+                    farCenterScreen);
+
+                if (nearCenterValid && farCenterValid) {
+                    // Eje central del volumen congelado.
+                    m_viewportDrawList->AddLine(
+                        nearCenterScreen,
+                        farCenterScreen,
+                        IM_COL32(0, 0, 0, 145),
+                        4.0f);
+                    m_viewportDrawList->AddLine(
+                        nearCenterScreen,
+                        farCenterScreen,
+                        IM_COL32(130, 230, 255, 215),
+                        1.75f);
+
+                    auto drawPlaneLabel = [&](
+                        const ImVec2& center,
+                        const char* text,
+                        ImU32 borderColor) {
+
+                        const ImVec2 textSize = ImGui::CalcTextSize(text);
+                        const ImVec2 min(
+                            center.x - textSize.x * 0.5f - 5.0f,
+                            center.y - textSize.y * 0.5f - 3.0f);
+                        const ImVec2 max(
+                            center.x + textSize.x * 0.5f + 5.0f,
+                            center.y + textSize.y * 0.5f + 3.0f);
+
+                        m_viewportDrawList->AddRectFilled(
+                            min,
+                            max,
+                            IM_COL32(10, 15, 20, 220),
+                            3.0f);
+                        m_viewportDrawList->AddRect(
+                            min,
+                            max,
+                            borderColor,
+                            3.0f,
+                            0,
+                            1.5f);
+                        m_viewportDrawList->AddText(
+                            ImVec2(
+                                center.x - textSize.x * 0.5f,
+                                center.y - textSize.y * 0.5f),
+                            IM_COL32(240, 247, 252, 255),
+                            text);
+                    };
+
+                    drawPlaneLabel(
+                        nearCenterScreen,
+                        "NEAR",
+                        IM_COL32(255, 196, 72, 245));
+                    drawPlaneLabel(
+                        farCenterScreen,
+                        "FAR",
+                        IM_COL32(75, 220, 255, 245));
+
+                    // Estimacion del punto de origen de una camara perspectiva.
+                    // Se usa solo como referencia visual del frustum congelado.
+                    const float nearWidth = distanceWorld(corners[0], corners[1]);
+                    const float farWidth = distanceWorld(corners[4], corners[5]);
+                    const float widthDelta = farWidth - nearWidth;
+                    if (nearWidth > 0.0001f && widthDelta > 0.0001f) {
+                        const float factor = nearWidth / widthDelta;
+                        const EU::Vector3 frozenCameraOrigin(
+                            nearCenter.x - (farCenter.x - nearCenter.x) * factor,
+                            nearCenter.y - (farCenter.y - nearCenter.y) * factor,
+                            nearCenter.z - (farCenter.z - nearCenter.z) * factor);
+
+                        ImVec2 cameraScreen{};
+                        if (projectWorld(frozenCameraOrigin, cameraScreen)) {
+                            for (int cornerIndex = 0; cornerIndex < 4; ++cornerIndex) {
+                                if (!valid[cornerIndex]) continue;
+                                m_viewportDrawList->AddLine(
+                                    cameraScreen,
+                                    projected[cornerIndex],
+                                    IM_COL32(255, 215, 110, 72),
+                                    1.0f);
+                            }
+
+                            m_viewportDrawList->AddCircleFilled(
+                                cameraScreen,
+                                8.0f,
+                                IM_COL32(0, 0, 0, 210));
+                            m_viewportDrawList->AddCircleFilled(
+                                cameraScreen,
+                                5.5f,
+                                IM_COL32(255, 202, 75, 255));
+                            m_viewportDrawList->AddCircle(
+                                cameraScreen,
+                                10.5f,
+                                IM_COL32(255, 225, 145, 210),
+                                16,
+                                1.5f);
+
+                            const char* cameraLabel = "CAMARA AL CONGELAR";
+                            const ImVec2 labelSize = ImGui::CalcTextSize(cameraLabel);
+                            const ImVec2 labelPos(
+                                cameraScreen.x + 13.0f,
+                                cameraScreen.y - labelSize.y * 0.5f);
+                            m_viewportDrawList->AddText(
+                                ImVec2(labelPos.x + 1.0f, labelPos.y + 1.0f),
+                                IM_COL32(0, 0, 0, 220),
+                                cameraLabel);
+                            m_viewportDrawList->AddText(
+                                labelPos,
+                                IM_COL32(255, 220, 125, 255),
+                                cameraLabel);
+                        }
+                    }
+                }
+
+                // Badge persistente: deja claro que el volumen mostrado ya no
+                // representa la posicion actual de la camara del editor.
+                const char* frozenTitle = "FRUSTUM CONGELADO";
+                const char* frozenSub = "Debug visual - culling real usa la camara actual";
+                const ImVec2 titleSize = ImGui::CalcTextSize(frozenTitle);
+                const ImVec2 subSize = ImGui::CalcTextSize(frozenSub);
+                const float badgeWidth = (std::max)(titleSize.x, subSize.x) + 20.0f;
+                const float badgeHeight = 42.0f;
+                const ImVec2 badgeMin(
+                    clipMax.x - badgeWidth - 12.0f,
+                    clipMin.y + 12.0f);
+                const ImVec2 badgeMax(
+                    badgeMin.x + badgeWidth,
+                    badgeMin.y + badgeHeight);
+
+                m_viewportDrawList->AddRectFilled(
+                    badgeMin,
+                    badgeMax,
+                    IM_COL32(8, 15, 22, 232),
+                    5.0f);
+                m_viewportDrawList->AddRect(
+                    badgeMin,
+                    badgeMax,
+                    IM_COL32(75, 220, 255, 235),
+                    5.0f,
+                    0,
+                    1.5f);
+                m_viewportDrawList->AddText(
+                    ImVec2(badgeMin.x + 10.0f, badgeMin.y + 6.0f),
+                    IM_COL32(95, 230, 255, 255),
+                    frozenTitle);
+                m_viewportDrawList->AddText(
+                    ImVec2(badgeMin.x + 10.0f, badgeMin.y + 22.0f),
+                    IM_COL32(190, 205, 215, 245),
+                    frozenSub);
+            }
+            else {
+                // En modo normal mantenemos el dibujo ligero para no saturar
+                // el viewport durante la edicion diaria.
+                static const int nearEdges[4][2] = {
+                    {0,1},{1,3},{3,2},{2,0}
+                };
+                static const int farEdges[4][2] = {
+                    {4,5},{5,7},{7,6},{6,4}
+                };
+                static const int sideEdges[4][2] = {
+                    {0,4},{1,5},{2,6},{3,7}
+                };
+
+                for (int edgeIndex = 0; edgeIndex < 4; ++edgeIndex) {
+                    drawFrustumEdge(
+                        nearEdges[edgeIndex][0],
+                        nearEdges[edgeIndex][1],
+                        IM_COL32(255, 218, 145, 215),
+                        1.75f);
+                    drawFrustumEdge(
+                        farEdges[edgeIndex][0],
+                        farEdges[edgeIndex][1],
+                        IM_COL32(165, 225, 255, 210),
+                        1.75f);
+                    drawFrustumEdge(
+                        sideEdges[edgeIndex][0],
+                        sideEdges[edgeIndex][1],
+                        IM_COL32(235, 242, 247, 205),
+                        1.5f);
+                }
             }
         }
     }
@@ -2389,6 +2705,29 @@ void GUI::drawStatsPanel(
             "El Octree queda en espera mientras Frustum Culling este apagado.");
     }
 
+    ImGui::TextDisabled("Presets:");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Ligero")) {
+        m_octreeMaxDepth = 4;
+        m_octreeCapacity = 16;
+        m_octreeLooseness = 1.25f;
+        m_statusMessage = "Octree: preset Ligero";
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Equilibrado")) {
+        m_octreeMaxDepth = 5;
+        m_octreeCapacity = 8;
+        m_octreeLooseness = 1.35f;
+        m_statusMessage = "Octree: preset Equilibrado";
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Denso")) {
+        m_octreeMaxDepth = 6;
+        m_octreeCapacity = 4;
+        m_octreeLooseness = 1.50f;
+        m_statusMessage = "Octree: preset Denso";
+    }
+
     ImGui::SliderInt(
         "Profundidad maxima",
         &m_octreeMaxDepth,
@@ -2399,16 +2738,47 @@ void GUI::drawStatsPanel(
         &m_octreeCapacity,
         1,
         32);
+    ImGui::SliderFloat(
+        "Holgura Loose Octree",
+        &m_octreeLooseness,
+        1.0f,
+        2.0f,
+        "%.2f");
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip(
+            "Expande ligeramente los nodos para que objetos grandes o sobre el suelo puedan bajar de nivel sin duplicarse. 1.35 es recomendado.");
+    }
+
+    ImGui::Checkbox(
+        "Validar Octree contra Frustum directo",
+        &m_validateOctreeResults);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip(
+            "Modo de debug: ejecuta tambien el Frustum directo y compara resultados. Aumenta el costo de CPU.");
+    }
 
     if (cullingStats.octreeEnabled) {
         ImGui::Spacing();
+
         ImGui::Text(
             "Entradas indexadas: %u",
             cullingStats.octreeEntries);
         ImGui::Text(
-            "Nodos: %u | Hojas: %u",
+            "Nodos activos: %u | Hojas: %u",
             cullingStats.octreeTotalNodes,
             cullingStats.octreeLeafNodes);
+        ImGui::Text(
+            "Profundidad usada: %u / %d",
+            cullingStats.octreeMaxDepthUsed,
+            m_octreeMaxDepth);
+
+        if (cullingStats.octreeInternalEntries > 0) {
+            ImGui::TextDisabled(
+                "Objetos que cruzan regiones y quedan en nodos padre: %u",
+                cullingStats.octreeInternalEntries);
+        }
+
+        ImGui::Spacing();
         ImGui::Text(
             "Nodos probados: %u",
             cullingStats.octreeTestedNodes);
@@ -2418,6 +2788,18 @@ void GUI::drawStatsPanel(
         ImGui::Text(
             "Nodos aceptados completos: %u",
             cullingStats.octreeAcceptedNodes);
+
+        ImGui::Text(
+            "Objetos aceptados por regiones/AABB: %u",
+            cullingStats.octreeAcceptedEntries);
+        ImGui::Text(
+            "Objetos descartados por regiones/AABB: %u",
+            cullingStats.octreeCulledEntries);
+        ImGui::Text(
+            "Candidatos en borde: %u",
+            cullingStats.octreeIntersectingEntries);
+
+        ImGui::Spacing();
         ImGui::Text(
             "Pruebas AABB individuales: %u / %u",
             cullingStats.octreeObjectTests,
@@ -2427,17 +2809,53 @@ void GUI::drawStatsPanel(
             cullingStats.octreeEntries > cullingStats.octreeObjectTests
                 ? cullingStats.octreeEntries - cullingStats.octreeObjectTests
                 : 0u;
+        const float avoidedPercentage =
+            cullingStats.getOctreeObjectTestAvoidancePercentage();
         ImGui::Text(
-            "Pruebas individuales evitadas: %u",
-            avoidedTests);
+            "Pruebas de objeto evitadas: %u (%.1f%%)",
+            avoidedTests,
+            avoidedPercentage);
+        ImGui::Text(
+            "Refinamientos exactos OBB: %u",
+            cullingStats.octreeRefinementTests);
 
         ImGui::Text(
-            "Construccion: %.3f ms | Consulta: %.3f ms",
+            "Detectar cambios: %.3f ms | Construir: %.3f ms | Consultar: %.3f ms",
+            cullingStats.octreeSignatureTimeMs,
             cullingStats.octreeBuildTimeMs,
             cullingStats.octreeQueryTimeMs);
         ImGui::TextDisabled(
             "Octree reconstruido este frame: %s",
             cullingStats.octreeRebuiltThisFrame ? "Si" : "No");
+
+        if (m_validateOctreeResults) {
+            ImGui::Spacing();
+            if (cullingStats.octreeValidationMismatches == 0) {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Text,
+                    ImVec4(0.35f, 0.92f, 0.55f, 1.0f));
+                ImGui::Text(
+                    "Validacion: OK - 0 diferencias en %u pruebas",
+                    cullingStats.octreeValidationTests);
+                ImGui::PopStyleColor();
+            }
+            else {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Text,
+                    ImVec4(0.95f, 0.35f, 0.30f, 1.0f));
+                ImGui::Text(
+                    "Validacion: %u diferencias / %u pruebas",
+                    cullingStats.octreeValidationMismatches,
+                    cullingStats.octreeValidationTests);
+                ImGui::PopStyleColor();
+            }
+        }
+
+        if (cullingStats.octreeEntries <=
+            static_cast<unsigned int>(m_octreeCapacity * 2)) {
+            ImGui::TextDisabled(
+                "Nota: con pocos objetos el Frustum directo puede ser igual o mas barato que el Octree.");
+        }
     }
     else {
         ImGui::TextDisabled(

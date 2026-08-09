@@ -198,6 +198,12 @@ private:
 	void focusCameraOnActor(const EU::TSharedPointer<Actor>& actor);
 	void fitCameraToScene();
 
+	// Rejilla 3D del editor. A diferencia de ImGuizmo::DrawGrid, esta
+	// geometria entra al mismo depth buffer que los modelos, por lo que
+	// queda correctamente oculta detras de los objetos de la escena.
+	bool createEditorGridMesh(float halfExtent);
+	void submitEditorGridToRenderScene();
+
 	unsigned int m_lastDrawCalls = 0;
 	Frustum m_cameraFrustum;
 	Frustum m_debugFrustum;
@@ -336,6 +342,11 @@ private:
 	SamplerState m_defaultSampler;
 
 	Mesh m_carRenderMesh;
+
+	// Rejilla real en espacio 3D (editor only).
+	Mesh m_editorGridMesh;
+	MaterialInstance m_editorGridMaterial;
+	float m_editorGridBuiltSize = -1.0f;
 
 	Material m_pbrMaterial;
 	Material m_maskedPbrMaterial;

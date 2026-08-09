@@ -267,9 +267,11 @@ public:
     // Octree. Se mantiene desactivado por defecto para conservar exactamente
     // el comportamiento del Frustum Culling que ya funciona.
     bool m_octreeEnabled = false;
+    bool m_validateOctreeResults = false;
     bool m_showOctreeDebug = false;
     int m_octreeMaxDepth = 5;
     int m_octreeCapacity = 8;
+    float m_octreeLooseness = 1.35f;
     int m_octreeDebugDepth = 2;
 
     ImGuiTextFilter m_assetFilter;

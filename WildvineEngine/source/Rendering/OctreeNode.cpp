@@ -1,5 +1,6 @@
 #include "Rendering/OctreeNode.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace {
@@ -48,79 +49,137 @@ bool OctreeBounds::contains(
 
 OctreeNode::OctreeNode(
     const OctreeBounds& bounds,
-    int depth)
+    int depth,
+    float looseness,
+    bool rootNode)
     : m_bounds(bounds),
-      m_depth(depth) {
+      m_depth(depth),
+      m_looseness((std::max)(1.0f, looseness)) {
+
+    // La raiz ya contiene toda la escena y no necesita expandirse. Los hijos
+    // usan bounds ligeramente mayores para admitir objetos que cruzan el
+    // limite exacto de una celda sin duplicarlos.
+    m_looseBounds = rootNode ? m_bounds : calculateLooseBounds(m_bounds);
 }
 
-bool OctreeNode::isLeaf() const {
-    return m_children[0] == nullptr;
+bool OctreeNode::hasAnyChild() const {
+    for (const std::unique_ptr<OctreeNode>& child : m_children) {
+        if (child) {
+            return true;
+        }
+    }
+    return false;
 }
 
 int OctreeNode::findContainingChild(
     const OctreeBounds& bounds) const {
 
-    if (isLeaf() || !bounds.isValid()) {
+    if (!m_subdivided || !bounds.isValid()) {
         return -1;
     }
 
-    for (int childIndex = 0; childIndex < 8; ++childIndex) {
-        if (m_children[childIndex] &&
-            m_children[childIndex]->m_bounds.contains(bounds)) {
-            return childIndex;
-        }
+    // En un Loose Octree elegimos UN solo hijo por el centro del objeto.
+    // Luego verificamos que la caja completa quepa dentro del loose bound de
+    // ese hijo. Esto permite solapamiento espacial sin duplicar entidades.
+    const EU::Vector3 middle = m_bounds.center();
+    const EU::Vector3 objectCenter = bounds.center();
+
+    int childIndex = 0;
+    if (objectCenter.x >= middle.x) childIndex |= 1;
+    if (objectCenter.y >= middle.y) childIndex |= 2;
+    if (objectCenter.z >= middle.z) childIndex |= 4;
+
+    const OctreeBounds childTight = calculateChildBounds(childIndex);
+    const OctreeBounds childLoose = calculateLooseBounds(childTight);
+    return childLoose.contains(bounds) ? childIndex : -1;
+}
+
+OctreeBounds OctreeNode::calculateChildBounds(
+    int childIndex) const {
+
+    const EU::Vector3 middle = m_bounds.center();
+    const bool highX = (childIndex & 1) != 0;
+    const bool highY = (childIndex & 2) != 0;
+    const bool highZ = (childIndex & 4) != 0;
+
+    OctreeBounds childBounds{};
+    childBounds.minimum = EU::Vector3(
+        highX ? middle.x : m_bounds.minimum.x,
+        highY ? middle.y : m_bounds.minimum.y,
+        highZ ? middle.z : m_bounds.minimum.z);
+    childBounds.maximum = EU::Vector3(
+        highX ? m_bounds.maximum.x : middle.x,
+        highY ? m_bounds.maximum.y : middle.y,
+        highZ ? m_bounds.maximum.z : middle.z);
+    return childBounds;
+}
+
+OctreeBounds OctreeNode::calculateLooseBounds(
+    const OctreeBounds& tightBounds) const {
+
+    if (!tightBounds.isValid()) {
+        return OctreeBounds{};
     }
 
-    return -1;
+    const EU::Vector3 center = tightBounds.center();
+    const float halfX = (tightBounds.maximum.x - tightBounds.minimum.x) * 0.5f * m_looseness;
+    const float halfY = (tightBounds.maximum.y - tightBounds.minimum.y) * 0.5f * m_looseness;
+    const float halfZ = (tightBounds.maximum.z - tightBounds.minimum.z) * 0.5f * m_looseness;
+
+    OctreeBounds loose{};
+    loose.minimum = EU::Vector3(
+        center.x - halfX,
+        center.y - halfY,
+        center.z - halfZ);
+    loose.maximum = EU::Vector3(
+        center.x + halfX,
+        center.y + halfY,
+        center.z + halfZ);
+    return loose;
+}
+
+OctreeNode* OctreeNode::ensureChild(int childIndex) {
+    if (childIndex < 0 || childIndex >= 8) {
+        return nullptr;
+    }
+
+    if (!m_children[childIndex]) {
+        m_children[childIndex] = std::make_unique<OctreeNode>(
+            calculateChildBounds(childIndex),
+            m_depth + 1,
+            m_looseness,
+            false);
+    }
+
+    return m_children[childIndex].get();
 }
 
 void OctreeNode::subdivide(
     int maxDepth,
     unsigned int capacity) {
 
-    if (!isLeaf() || m_depth >= maxDepth) {
+    if (m_subdivided || m_depth >= maxDepth) {
         return;
     }
 
-    const EU::Vector3 middle = m_bounds.center();
+    m_subdivided = true;
 
-    for (int childIndex = 0; childIndex < 8; ++childIndex) {
-        const bool highX = (childIndex & 1) != 0;
-        const bool highY = (childIndex & 2) != 0;
-        const bool highZ = (childIndex & 4) != 0;
-
-        OctreeBounds childBounds{};
-        childBounds.minimum = EU::Vector3(
-            highX ? middle.x : m_bounds.minimum.x,
-            highY ? middle.y : m_bounds.minimum.y,
-            highZ ? middle.z : m_bounds.minimum.z);
-        childBounds.maximum = EU::Vector3(
-            highX ? m_bounds.maximum.x : middle.x,
-            highY ? m_bounds.maximum.y : middle.y,
-            highZ ? m_bounds.maximum.z : middle.z);
-
-        m_children[childIndex] =
-            std::make_unique<OctreeNode>(
-                childBounds,
-                m_depth + 1);
-    }
-
-    // Repartimos los objetos existentes. Los que cruzan varias celdas se
-    // mantienen en este nodo para que nunca aparezcan duplicados.
+    // Repartimos solo las entradas que caben por completo en una region.
+    // Los hijos se crean bajo demanda, evitando ocho nodos vacios por cada
+    // subdivision del arbol.
     std::vector<OctreeEntry> remaining;
     remaining.reserve(m_entries.size());
 
     for (const OctreeEntry& entry : m_entries) {
         const int childIndex = findContainingChild(entry.bounds);
         if (childIndex >= 0) {
-            m_children[childIndex]->insert(
-                entry,
-                maxDepth,
-                capacity);
+            OctreeNode* child = ensureChild(childIndex);
+            if (child) {
+                child->insert(entry, maxDepth, capacity);
+                continue;
+            }
         }
-        else {
-            remaining.push_back(entry);
-        }
+        remaining.push_back(entry);
     }
 
     m_entries.swap(remaining);
@@ -133,26 +192,26 @@ void OctreeNode::insert(
 
     if (!entry.entity ||
         !entry.bounds.isValid() ||
-        !m_bounds.contains(entry.bounds)) {
+        !m_looseBounds.contains(entry.bounds)) {
         return;
     }
 
     ++m_subtreeEntryCount;
 
-    if (!isLeaf()) {
+    if (m_subdivided) {
         const int childIndex = findContainingChild(entry.bounds);
         if (childIndex >= 0) {
-            m_children[childIndex]->insert(
-                entry,
-                maxDepth,
-                capacity);
-            return;
+            OctreeNode* child = ensureChild(childIndex);
+            if (child) {
+                child->insert(entry, maxDepth, capacity);
+                return;
+            }
         }
     }
 
     m_entries.push_back(entry);
 
-    if (isLeaf() &&
+    if (!m_subdivided &&
         m_entries.size() > capacity &&
         m_depth < maxDepth) {
         subdivide(maxDepth, capacity);
@@ -160,17 +219,17 @@ void OctreeNode::insert(
 }
 
 void OctreeNode::collectAll(
-    std::vector<Entity*>& outVisible) const {
+    std::vector<Entity*>& outEntities) const {
 
     for (const OctreeEntry& entry : m_entries) {
         if (entry.entity) {
-            outVisible.push_back(entry.entity);
+            outEntities.push_back(entry.entity);
         }
     }
 
     for (const std::unique_ptr<OctreeNode>& child : m_children) {
-        if (child) {
-            child->collectAll(outVisible);
+        if (child && child->m_subtreeEntryCount > 0) {
+            child->collectAll(outEntities);
         }
     }
 }
@@ -179,12 +238,16 @@ void OctreeNode::appendInsideDebug(
     std::vector<OctreeDebugBox>& debugBoxes,
     int debugDepth) const {
 
+    if (m_subtreeEntryCount == 0) {
+        return;
+    }
+
     if (debugDepth < 0 || m_depth <= debugDepth) {
         OctreeDebugBox box{};
-        box.bounds = m_bounds;
+        box.bounds = m_looseBounds;
         box.depth = m_depth;
         box.classification = FrustumBoxResult::Inside;
-        box.leaf = isLeaf();
+        box.leaf = !hasAnyChild();
         debugBoxes.push_back(box);
     }
 
@@ -204,42 +267,53 @@ void OctreeNode::query(
     std::vector<Entity*>& outVisible,
     OctreeQueryStats& stats,
     std::vector<OctreeDebugBox>* debugBoxes,
-    int debugDepth) const {
+    int debugDepth,
+    std::vector<Entity*>* outNeedsRefinement) const {
+
+    if (m_subtreeEntryCount == 0) {
+        return;
+    }
 
     ++stats.testedNodes;
 
-    const FrustumBoxResult nodeResult =
-        frustum.classifyBox(
-            m_bounds.minimum,
-            m_bounds.maximum,
-            XMMatrixIdentity());
+    const FrustumBoxResult nodeResult = frustum.classifyBox(
+        m_looseBounds.minimum,
+        m_looseBounds.maximum,
+        XMMatrixIdentity());
 
     if (debugBoxes &&
         (debugDepth < 0 || m_depth <= debugDepth)) {
         OctreeDebugBox box{};
-        box.bounds = m_bounds;
+        box.bounds = m_looseBounds;
         box.depth = m_depth;
         box.classification = nodeResult;
-        box.leaf = isLeaf();
+        box.leaf = !hasAnyChild();
         debugBoxes->push_back(box);
     }
 
-    // Frustum invalido: politica conservadora, nada desaparece.
+    // Frustum invalido: politica conservadora. Se aceptan los candidatos y
+    // se marcan para una comprobacion exacta posterior si el caller la usa.
     if (nodeResult == FrustumBoxResult::Invalid) {
         collectAll(outVisible);
+        stats.intersectingEntries += m_subtreeEntryCount;
+        if (outNeedsRefinement) {
+            collectAll(*outNeedsRefinement);
+        }
         return;
     }
 
-    // Todo el nodo esta fuera: descartamos el subarbol completo.
+    // Una region totalmente fuera elimina el subarbol completo.
     if (nodeResult == FrustumBoxResult::Outside) {
         ++stats.culledNodes;
+        stats.culledEntries += m_subtreeEntryCount;
         return;
     }
 
-    // Todo el nodo esta dentro: aceptamos su subarbol sin hacer pruebas AABB
-    // individuales. Esta es una de las ganancias principales del Octree.
+    // Si el nodo completo esta dentro, sus objetos tambien lo estan. No hace
+    // falta realizar ninguna prueba individual.
     if (nodeResult == FrustumBoxResult::Inside) {
         ++stats.acceptedNodes;
+        stats.acceptedEntries += m_subtreeEntryCount;
         collectAll(outVisible);
 
         if (debugBoxes &&
@@ -253,21 +327,35 @@ void OctreeNode::query(
         return;
     }
 
-    // Nodo intersectando: solo sus objetos directos requieren prueba AABB.
+    // Nodo intersectando: probamos solamente las entradas guardadas en este
+    // nodo. Una AABB mundial que tambien intersecta se marca para una prueba
+    // final mas precisa usando los bounds locales transformados (OBB corners).
     for (const OctreeEntry& entry : m_entries) {
         if (!entry.entity) {
             continue;
         }
 
         ++stats.objectTests;
-        const FrustumBoxResult objectResult =
-            frustum.classifyBox(
-                entry.bounds.minimum,
-                entry.bounds.maximum,
-                XMMatrixIdentity());
+        const FrustumBoxResult objectResult = frustum.classifyBox(
+            entry.bounds.minimum,
+            entry.bounds.maximum,
+            XMMatrixIdentity());
 
-        if (objectResult != FrustumBoxResult::Outside) {
-            outVisible.push_back(entry.entity);
+        if (objectResult == FrustumBoxResult::Outside) {
+            ++stats.culledEntries;
+            continue;
+        }
+
+        outVisible.push_back(entry.entity);
+
+        if (objectResult == FrustumBoxResult::Inside) {
+            ++stats.acceptedEntries;
+        }
+        else {
+            ++stats.intersectingEntries;
+            if (outNeedsRefinement) {
+                outNeedsRefinement->push_back(entry.entity);
+            }
         }
     }
 
@@ -278,15 +366,20 @@ void OctreeNode::query(
                 outVisible,
                 stats,
                 debugBoxes,
-                debugDepth);
+                debugDepth,
+                outNeedsRefinement);
         }
     }
 }
 
 unsigned int OctreeNode::countNodes() const {
+    if (m_subtreeEntryCount == 0) {
+        return 0;
+    }
+
     unsigned int result = 1;
     for (const std::unique_ptr<OctreeNode>& child : m_children) {
-        if (child) {
+        if (child && child->m_subtreeEntryCount > 0) {
             result += child->countNodes();
         }
     }
@@ -294,14 +387,41 @@ unsigned int OctreeNode::countNodes() const {
 }
 
 unsigned int OctreeNode::countLeaves() const {
-    if (isLeaf()) {
-        return 1;
+    if (m_subtreeEntryCount == 0) {
+        return 0;
     }
 
+    bool anyOccupiedChild = false;
     unsigned int result = 0;
     for (const std::unique_ptr<OctreeNode>& child : m_children) {
-        if (child) {
+        if (child && child->m_subtreeEntryCount > 0) {
+            anyOccupiedChild = true;
             result += child->countLeaves();
+        }
+    }
+
+    return anyOccupiedChild ? result : 1u;
+}
+
+unsigned int OctreeNode::getMaxOccupiedDepth() const {
+    unsigned int result = static_cast<unsigned int>(m_depth);
+    for (const std::unique_ptr<OctreeNode>& child : m_children) {
+        if (child && child->m_subtreeEntryCount > 0) {
+            result = (std::max)(result, child->getMaxOccupiedDepth());
+        }
+    }
+    return result;
+}
+
+unsigned int OctreeNode::countInternalEntries() const {
+    const bool internal = hasAnyChild();
+    unsigned int result = internal
+        ? static_cast<unsigned int>(m_entries.size())
+        : 0u;
+
+    for (const std::unique_ptr<OctreeNode>& child : m_children) {
+        if (child && child->m_subtreeEntryCount > 0) {
+            result += child->countInternalEntries();
         }
     }
     return result;

@@ -549,7 +549,8 @@ SceneGraph::gatherRenderScene(
     const Camera& camera,
     const Frustum* frustum,
     PerformanceProfiler* profiler,
-    Octree* octree) {
+    Octree* octree,
+    bool validateOctreeResults) {
 
     if (profiler) {
         profiler->beginCulling();
@@ -563,6 +564,7 @@ SceneGraph::gatherRenderScene(
     // conservador del Frustum normal y nunca desaparece por error.
     std::unordered_set<Entity*> octreeIndexedEntities;
     std::unordered_set<Entity*> octreeVisibleEntities;
+    std::unordered_set<Entity*> octreeRefinementEntities;
 
     auto calculateWorldBounds = [](
         const EU::Vector3& localMinimum,
@@ -665,11 +667,23 @@ SceneGraph::gatherRenderScene(
         octree->rebuild(octreeEntries);
 
         std::vector<Entity*> visibleFromOctree;
-        octree->query(*frustum, visibleFromOctree);
+        std::vector<Entity*> refinementFromOctree;
+        octree->query(
+            *frustum,
+            visibleFromOctree,
+            &refinementFromOctree);
+
         octreeVisibleEntities.reserve(visibleFromOctree.size());
         for (Entity* visibleEntity : visibleFromOctree) {
             if (visibleEntity) {
                 octreeVisibleEntities.insert(visibleEntity);
+            }
+        }
+
+        octreeRefinementEntities.reserve(refinementFromOctree.size());
+        for (Entity* refinementEntity : refinementFromOctree) {
+            if (refinementEntity) {
+                octreeRefinementEntities.insert(refinementEntity);
             }
         }
 
@@ -801,10 +815,42 @@ SceneGraph::gatherRenderScene(
                     visibleToCamera =
                         octreeVisibleEntities.find(entity) !=
                         octreeVisibleEntities.end();
+
+                    // El Octree trabaja con AABB en espacio mundo. Cuando esa
+                    // caja solo intersecta el frustum hacemos una segunda prueba
+                    // mas precisa con las 8 esquinas del bounds local transformado.
+                    // Esto mantiene el mismo resultado que el Frustum directo
+                    // sin perder la capacidad de aceptar/descartar regiones enteras.
+                    const bool needsRefinement =
+                        visibleToCamera &&
+                        octreeRefinementEntities.find(entity) !=
+                            octreeRefinementEntities.end();
+
+                    if (needsRefinement) {
+                        if (profiler) {
+                            profiler->recordOctreeRefinement();
+                        }
+                        visibleToCamera = frustum->isBoxVisible(
+                            localMinimum,
+                            localMaximum,
+                            transform->worldMatrix);
+                    }
+
+                    // Modo de validacion para presentacion/debug. Es caro porque
+                    // ejecuta tambien el Frustum directo, por eso esta apagado
+                    // por defecto y nunca modifica el resultado del renderer.
+                    if (validateOctreeResults && profiler) {
+                        const bool directVisible = frustum->isBoxVisible(
+                            localMinimum,
+                            localMaximum,
+                            transform->worldMatrix);
+                        profiler->recordOctreeValidation(
+                            directVisible == visibleToCamera);
+                    }
                 }
                 else {
                     // Fallback conservador para objetos que no pudieron entrar
-                    // en el Octree: usamos exactamente el Frustum ya probado.
+                    // en el Octree: usamos exactamente el Frustum directo.
                     visibleToCamera = frustum->isBoxVisible(
                         localMinimum,
                         localMaximum,

@@ -7,6 +7,7 @@
 #include <limits>
 #include <unordered_map>
 #include <cstring>
+#include <cmath>
 
 #pragma comment(lib, "Comdlg32.lib")
 
@@ -1234,6 +1235,30 @@ BaseApp::init() {
 		XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
 		0.0f, 0.45f, 0.85f, 0.5f);
 
+	// Material dedicado de la rejilla del editor. Reutiliza las texturas
+	// PBR neutras ya cargadas por Wildvine y se renderiza como geometria
+	// opaca normal, por lo que participa correctamente en el Z-buffer.
+	m_editorGridMaterial.setMaterial(&m_pbrMaterial);
+	m_editorGridMaterial.setAlbedo(&m_carTextures[CarTexWhite]);
+	m_editorGridMaterial.setNormal(&m_carTextures[CarTexFlatNormal]);
+	m_editorGridMaterial.setMetallic(&m_carTextures[CarTexMetallicBlack]);
+	m_editorGridMaterial.setRoughness(&m_carTextures[CarTexRoughnessMatte]);
+	m_editorGridMaterial.setAO(&m_carTextures[CarTexAOWide]);
+	m_editorGridMaterial.setEmissive(&m_carTextures[CarTexEmissiveBlack]);
+	m_editorGridMaterial.getParams().baseColor =
+		XMFLOAT4(0.42f, 0.46f, 0.48f, 1.0f);
+	m_editorGridMaterial.getParams().metallic = 0.0f;
+	m_editorGridMaterial.getParams().roughness = 0.92f;
+	m_editorGridMaterial.getParams().ao = 1.0f;
+	m_editorGridMaterial.getParams().normalScale = 0.0f;
+	m_editorGridMaterial.getParams().emissiveStrength = 0.0f;
+	m_editorGridMaterial.getParams().alphaCutoff = 0.5f;
+
+	if (!createEditorGridMesh(10.0f)) {
+		ERROR("BaseApp", "init", "No se pudo crear la rejilla 3D del editor.");
+		return E_FAIL;
+	}
+
 	m_car01 = EU::MakeShared<Actor>(m_device);
 	if (m_car01.isNull()) {
 		ERROR("Main", "InitDevice", "No se pudo crear actor del auto.");
@@ -2291,7 +2316,9 @@ BaseApp::update(float deltaTime) {
 	}
 
 	m_gui.drawViewportPanel(m_editorViewportPass.getSRV());
-	m_gui.drawViewportGrid(m_camera);
+	// La rejilla ya se renderiza dentro del viewport 3D con depth test.
+	// No se usa ImGuizmo::DrawGrid aqui porque es un overlay 2D y
+	// atravesaria visualmente los modelos.
 	m_gui.drawFrustumCullingDebug(
 		m_actors,
 		m_camera,
@@ -2895,6 +2922,127 @@ BaseApp::update(float deltaTime) {
 	updateParticleBillboards();
 }
 
+bool BaseApp::createEditorGridMesh(float halfExtent) {
+	const float safeHalfExtent = (std::max)(1.0f, halfExtent);
+	const float spacing = 1.0f;
+	const float minorThickness = 0.0125f;
+	const float axisThickness = 0.028f;
+	const float gridY = 0.0025f;
+
+	m_editorGridMesh.destroy();
+
+	MeshComponent meshData;
+	meshData.m_name = "EditorDepthGrid";
+	meshData.m_materialSlot = 0;
+
+	auto pushVertex = [&](float x, float y, float z, float u, float v) {
+		SimpleVertex vertex{};
+		vertex.Position = EU::Vector3(x, y, z);
+		vertex.Normal = EU::Vector3(0.0f, 1.0f, 0.0f);
+		vertex.Tangent = EU::Vector3(1.0f, 0.0f, 0.0f);
+		vertex.Bitangent = EU::Vector3(0.0f, 0.0f, 1.0f);
+		vertex.TextureCoordinate = EU::Vector2(u, v);
+		meshData.m_vertex.push_back(vertex);
+	};
+
+	auto addQuadXZ = [&](float minX, float minZ, float maxX, float maxZ) {
+		const unsigned int base =
+			static_cast<unsigned int>(meshData.m_vertex.size());
+
+		pushVertex(minX, gridY, minZ, 0.0f, 0.0f);
+		pushVertex(maxX, gridY, minZ, 1.0f, 0.0f);
+		pushVertex(maxX, gridY, maxZ, 1.0f, 1.0f);
+		pushVertex(minX, gridY, maxZ, 0.0f, 1.0f);
+
+		meshData.m_index.push_back(base + 0u);
+		meshData.m_index.push_back(base + 1u);
+		meshData.m_index.push_back(base + 2u);
+		meshData.m_index.push_back(base + 0u);
+		meshData.m_index.push_back(base + 2u);
+		meshData.m_index.push_back(base + 3u);
+	};
+
+	const int lineCount = static_cast<int>(safeHalfExtent / spacing);
+	for (int line = -lineCount; line <= lineCount; ++line) {
+		const float coordinate = static_cast<float>(line) * spacing;
+		const bool mainAxis = (line == 0);
+		const float thickness = mainAxis ? axisThickness : minorThickness;
+		const float halfWidth = thickness * 0.5f;
+
+		// Linea paralela a Z.
+		addQuadXZ(
+			coordinate - halfWidth,
+			-safeHalfExtent,
+			coordinate + halfWidth,
+			safeHalfExtent);
+
+		// Linea paralela a X.
+		addQuadXZ(
+			-safeHalfExtent,
+			coordinate - halfWidth,
+			safeHalfExtent,
+			coordinate + halfWidth);
+	}
+
+	meshData.m_numVertex = static_cast<int>(meshData.m_vertex.size());
+	meshData.m_numIndex = static_cast<int>(meshData.m_index.size());
+
+	if (meshData.m_vertex.empty() || meshData.m_index.empty()) {
+		return false;
+	}
+
+	Submesh submesh{};
+	HRESULT hr = submesh.vertexBuffer.init(
+		m_device,
+		meshData,
+		D3D11_BIND_VERTEX_BUFFER);
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	hr = submesh.indexBuffer.init(
+		m_device,
+		meshData,
+		D3D11_BIND_INDEX_BUFFER);
+	if (FAILED(hr)) {
+		submesh.vertexBuffer.destroy();
+		return false;
+	}
+
+	submesh.indexCount = static_cast<unsigned int>(meshData.m_index.size());
+	submesh.startIndex = 0;
+	submesh.materialSlot = 0;
+	m_editorGridMesh.getSubmeshes().push_back(std::move(submesh));
+	m_editorGridBuiltSize = safeHalfExtent;
+	return true;
+}
+
+void BaseApp::submitEditorGridToRenderScene() {
+	if (!m_gui.m_showGrid) {
+		return;
+	}
+
+	const float desiredSize = (std::max)(1.0f, m_gui.m_gridSize);
+	if (m_editorGridMesh.getSubmeshes().empty() ||
+		std::fabs(m_editorGridBuiltSize - desiredSize) > 0.001f) {
+		if (!createEditorGridMesh(desiredSize)) {
+			return;
+		}
+	}
+
+	RenderObject gridObject{};
+	gridObject.mesh = &m_editorGridMesh;
+	gridObject.materialInstance = &m_editorGridMaterial;
+	gridObject.materialInstances.push_back(&m_editorGridMaterial);
+	gridObject.world = XMMatrixIdentity();
+	gridObject.castShadow = false;
+	gridObject.receiveShadow = false;
+	gridObject.transparent = false;
+	gridObject.distanceToCamera = 0.0f;
+
+	m_renderScene.opaqueObjects.push_back(gridObject);
+}
+
 void
 BaseApp::render() {
 	float ClearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
@@ -2916,7 +3064,8 @@ BaseApp::render() {
 	// La configuracion se puede modificar en tiempo real desde el profiler.
 	m_octree.setConfig(
 		m_gui.m_octreeMaxDepth,
-		static_cast<unsigned int>(m_gui.m_octreeCapacity));
+		static_cast<unsigned int>(m_gui.m_octreeCapacity),
+		m_gui.m_octreeLooseness);
 	m_octree.setDebugCapture(
 		m_gui.m_showOctreeDebug && octreeEnabled,
 		m_gui.m_octreeDebugDepth);
@@ -2944,7 +3093,22 @@ BaseApp::render() {
 		&m_performanceProfiler,
 		octreeEnabled
 			? &m_octree
-			: nullptr);
+			: nullptr,
+		octreeEnabled && m_gui.m_validateOctreeResults);
+
+	// Si el frustum visual esta congelado, reclasificamos SOLO las cajas
+	// de debug del Octree contra ese volumen. Las estadisticas y el culling
+	// real siguen usando la camara actual.
+	if (octreeEnabled &&
+		m_gui.m_showOctreeDebug &&
+		m_gui.m_freezeFrustumDebug) {
+		m_octree.refreshDebug(m_debugFrustum);
+	}
+
+	// Rejilla editor-only: se agrega despues del culling para que no
+	// contamine las estadisticas y se dibuja con el mismo depth buffer
+	// que los modelos.
+	submitEditorGridToRenderScene();
 
 	m_renderScene.skybox = &m_skybox;
 
@@ -2977,6 +3141,7 @@ BaseApp::destroy() {
 	m_sceneGraph.destroy();
 	m_renderPipeline.destroy();
 	m_editorViewportPass.destroy();
+	m_editorGridMesh.destroy();
 	m_carRenderMesh.destroy();
 	for (Texture& texture : m_carTextures) texture.destroy();
 	m_defaultRasterizer.destroy();

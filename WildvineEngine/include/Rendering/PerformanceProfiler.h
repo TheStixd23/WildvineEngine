@@ -4,10 +4,7 @@
 
 struct OctreeStatistics;
 
-/**
- * @struct PerformanceStats
- * @brief Estadisticas de visibilidad generadas durante el ultimo frame.
- */
+/** Estadisticas de visibilidad generadas durante el ultimo frame. */
 struct PerformanceStats {
     unsigned int totalRenderableObjects = 0;
     unsigned int visibleObjects = 0;
@@ -29,10 +26,22 @@ struct PerformanceStats {
     unsigned int octreeEntries = 0;
     unsigned int octreeTotalNodes = 0;
     unsigned int octreeLeafNodes = 0;
+    unsigned int octreeMaxDepthUsed = 0;
+    unsigned int octreeInternalEntries = 0;
+
     unsigned int octreeTestedNodes = 0;
     unsigned int octreeCulledNodes = 0;
     unsigned int octreeAcceptedNodes = 0;
     unsigned int octreeObjectTests = 0;
+    unsigned int octreeAcceptedEntries = 0;
+    unsigned int octreeCulledEntries = 0;
+    unsigned int octreeIntersectingEntries = 0;
+
+    unsigned int octreeRefinementTests = 0;
+    unsigned int octreeValidationTests = 0;
+    unsigned int octreeValidationMismatches = 0;
+
+    float octreeSignatureTimeMs = 0.0f;
     float octreeBuildTimeMs = 0.0f;
     float octreeQueryTimeMs = 0.0f;
     bool octreeRebuiltThisFrame = false;
@@ -48,34 +57,29 @@ struct PerformanceStats {
 
     float getCullPercentage() const;
     float getTriangleCullPercentage() const;
+    float getOctreeObjectTestAvoidancePercentage() const;
 };
 
-/**
- * @class PerformanceProfiler
- * @brief Profiler ligero para medir el Frustum Culling.
- */
+/** Profiler ligero para Frustum Culling, Octree y particulas. */
 class PerformanceProfiler {
 public:
     PerformanceProfiler() = default;
 
-    /** Reinicia las estadisticas para un frame nuevo. */
     void beginFrame(bool frustumCullingEnabled, bool octreeEnabled = false);
 
-    /** Inicia/finaliza la medicion del pase de culling. */
     void beginCulling();
     void endCulling();
 
-    /** Registra el resultado de un objeto renderizable. */
     void recordRenderable(
         bool visible,
         bool hadBounds = true,
         unsigned int submeshCount = 0,
         unsigned long long triangleCount = 0);
 
-    /** Copia al profiler las estadisticas espaciales del Octree. */
     void setOctreeStatistics(const OctreeStatistics& statistics);
+    void recordOctreeRefinement();
+    void recordOctreeValidation(bool matched);
 
-    /** Registra estadisticas de un emisor de particulas. */
     void recordParticleEmitter(
         bool visible,
         unsigned int activeParticles,
@@ -83,7 +87,6 @@ public:
         unsigned int spawnedThisFrame,
         float simulationTimeMs,
         float billboardTimeMs);
-
 
     const PerformanceStats& getStats() const {
         return m_stats;

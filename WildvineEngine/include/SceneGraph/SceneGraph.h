@@ -89,7 +89,8 @@ public:
         const Camera& camera,
         const Frustum* frustum = nullptr,
         PerformanceProfiler* profiler = nullptr,
-        Octree* octree = nullptr);
+        Octree* octree = nullptr,
+        bool validateOctreeResults = false);
 
 private:
     void ensureRequiredComponents(Entity* entity);
