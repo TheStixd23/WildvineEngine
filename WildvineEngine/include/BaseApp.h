@@ -27,6 +27,9 @@
 #include "Rendering/Mesh.h"
 #include "Rendering/RenderPipeline.h"
 #include "Rendering/RenderScene.h"
+#include "Rendering/Frustum.h"
+#include "Rendering/PerformanceProfiler.h"
+#include "Rendering/Octree.h"
 #include "CommandManager.h"
 #include <string>
 #include <array>
@@ -195,6 +198,11 @@ private:
 	void fitCameraToScene();
 
 	unsigned int m_lastDrawCalls = 0;
+	Frustum m_cameraFrustum;
+	Frustum m_debugFrustum;
+	bool m_debugFrustumInitialized = false;
+	PerformanceProfiler m_performanceProfiler;
+	Octree m_octree;
 
 	// Picking
 	EU::Vector3 m_carModelLocalMin;

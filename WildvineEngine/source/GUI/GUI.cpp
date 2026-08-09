@@ -9,6 +9,8 @@
 #include "ECS/MeshRendererComponent.h"
 #include "ECS/LightComponent.h"
 #include "ECS/Transform.h"
+#include "Rendering/Frustum.h"
+#include "Rendering/Octree.h"
 #include "SceneGraph/HierarchyComponent.h"
 #include <functional>
 #include <string>
@@ -1431,6 +1433,249 @@ void GUI::drawViewportGrid(Camera& cam) {
 	m_viewportDrawList->PopClipRect();
 }
 
+
+void GUI::drawFrustumCullingDebug(
+    const std::vector<EU::TSharedPointer<Actor>>& actors,
+    Camera& camera,
+    const Frustum& debugFrustum,
+    const Octree* octree) {
+
+    if (!m_viewportDrawList ||
+        m_viewportSize.x < 16.0f ||
+        m_viewportSize.y < 16.0f ||
+        (!m_showCullingBounds &&
+         !m_showFrustumWireframe &&
+         !m_showOctreeDebug)) {
+        return;
+    }
+
+    const ImVec2 clipMin = m_viewportPos;
+    const ImVec2 clipMax(
+        m_viewportPos.x + m_viewportSize.x,
+        m_viewportPos.y + m_viewportSize.y);
+
+    const XMMATRIX viewProjection =
+        camera.getView() * camera.getProj();
+
+    auto projectWorld = [&](
+        const EU::Vector3& point,
+        ImVec2& output) -> bool {
+
+        const XMVECTOR clip = XMVector4Transform(
+            XMVectorSet(point.x, point.y, point.z, 1.0f),
+            viewProjection);
+
+        const float w = XMVectorGetW(clip);
+        if (!std::isfinite(w) || w <= 0.0001f) {
+            return false;
+        }
+
+        const float ndcX = XMVectorGetX(clip) / w;
+        const float ndcY = XMVectorGetY(clip) / w;
+        if (!std::isfinite(ndcX) || !std::isfinite(ndcY)) {
+            return false;
+        }
+
+        output.x = m_viewportPos.x +
+            (ndcX * 0.5f + 0.5f) * m_viewportSize.x;
+        output.y = m_viewportPos.y +
+            (1.0f - (ndcY * 0.5f + 0.5f)) * m_viewportSize.y;
+        return true;
+    };
+
+    static const int edges[12][2] = {
+        {0,1},{2,3},{4,5},{6,7},
+        {0,2},{1,3},{4,6},{5,7},
+        {0,4},{1,5},{2,6},{3,7}
+    };
+
+    auto drawWorldBox = [&](
+        const EU::Vector3& localMin,
+        const EU::Vector3& localMax,
+        const XMMATRIX& world,
+        ImU32 color,
+        float thickness) {
+
+        ImVec2 points[8]{};
+        bool valid[8]{};
+
+        for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex) {
+            const float x = (cornerIndex & 1) ? localMax.x : localMin.x;
+            const float y = (cornerIndex & 2) ? localMax.y : localMin.y;
+            const float z = (cornerIndex & 4) ? localMax.z : localMin.z;
+
+            const XMVECTOR worldCorner = XMVector3TransformCoord(
+                XMVectorSet(x, y, z, 1.0f),
+                world);
+
+            XMFLOAT3 worldPoint{};
+            XMStoreFloat3(&worldPoint, worldCorner);
+            valid[cornerIndex] = projectWorld(
+                EU::Vector3(worldPoint.x, worldPoint.y, worldPoint.z),
+                points[cornerIndex]);
+        }
+
+        for (int edgeIndex = 0; edgeIndex < 12; ++edgeIndex) {
+            const int a = edges[edgeIndex][0];
+            const int b = edges[edgeIndex][1];
+            if (!valid[a] || !valid[b]) {
+                continue;
+            }
+
+            m_viewportDrawList->AddLine(
+                points[a], points[b],
+                IM_COL32(0, 0, 0, 145),
+                thickness + 2.0f);
+            m_viewportDrawList->AddLine(
+                points[a], points[b],
+                color,
+                thickness);
+        }
+    };
+
+    m_viewportDrawList->PushClipRect(
+        clipMin,
+        clipMax,
+        true);
+
+    if (m_showCullingBounds) {
+        for (const EU::TSharedPointer<Actor>& actor : actors) {
+            if (actor.isNull() || !actor->isActive()) {
+                continue;
+            }
+
+            EU::TSharedPointer<Transform> transform =
+                actor->getComponent<Transform>();
+            EU::TSharedPointer<MeshRendererComponent> renderer =
+                actor->getComponent<MeshRendererComponent>();
+
+            if (!transform ||
+                !renderer ||
+                !renderer->isVisible() ||
+                !renderer->hasMesh()) {
+                continue;
+            }
+
+            EU::Vector3 localMin;
+            EU::Vector3 localMax;
+            if (!renderer->getLocalBounds(localMin, localMax)) {
+                continue;
+            }
+
+            const FrustumBoxResult result =
+                debugFrustum.classifyBox(
+                    localMin,
+                    localMax,
+                    transform->worldMatrix);
+
+            if (result == FrustumBoxResult::Outside &&
+                !m_showCulledBounds) {
+                continue;
+            }
+
+            ImU32 color = IM_COL32(238, 196, 64, 225);
+            if (result == FrustumBoxResult::Inside) {
+                color = IM_COL32(52, 224, 116, 225);
+            }
+            else if (result == FrustumBoxResult::Intersecting) {
+                color = IM_COL32(255, 174, 54, 235);
+            }
+            else if (result == FrustumBoxResult::Outside) {
+                color = IM_COL32(242, 72, 72, 235);
+            }
+
+            drawWorldBox(
+                localMin,
+                localMax,
+                transform->worldMatrix,
+                color,
+                1.5f);
+        }
+    }
+
+    if (m_showFrustumWireframe) {
+        std::array<EU::Vector3, 8> corners{};
+        if (debugFrustum.getWorldCorners(corners)) {
+            ImVec2 projected[8]{};
+            bool valid[8]{};
+
+            for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex) {
+                valid[cornerIndex] = projectWorld(
+                    corners[cornerIndex],
+                    projected[cornerIndex]);
+            }
+
+            for (int edgeIndex = 0; edgeIndex < 12; ++edgeIndex) {
+                const int a = edges[edgeIndex][0];
+                const int b = edges[edgeIndex][1];
+                if (!valid[a] || !valid[b]) {
+                    continue;
+                }
+
+                m_viewportDrawList->AddLine(
+                    projected[a], projected[b],
+                    IM_COL32(255, 255, 255, 190),
+                    2.0f);
+            }
+        }
+    }
+
+    if (m_showOctreeDebug &&
+        m_octreeEnabled &&
+        octree &&
+        octree->hasRoot()) {
+
+        const std::vector<OctreeDebugBox>& debugBoxes =
+            octree->getDebugBoxes();
+
+        for (const OctreeDebugBox& box : debugBoxes) {
+            ImU32 color = IM_COL32(80, 190, 255, 150);
+
+            if (box.classification == FrustumBoxResult::Inside) {
+                color = IM_COL32(70, 210, 175, 145);
+            }
+            else if (box.classification == FrustumBoxResult::Outside) {
+                color = IM_COL32(245, 80, 80, 165);
+            }
+            else if (box.classification == FrustumBoxResult::Intersecting) {
+                color = IM_COL32(75, 165, 255, 170);
+            }
+
+            drawWorldBox(
+                box.bounds.minimum,
+                box.bounds.maximum,
+                XMMatrixIdentity(),
+                color,
+                box.leaf ? 1.0f : 1.35f);
+        }
+    }
+
+    if (m_showCullingBounds ||
+        m_showFrustumWireframe ||
+        (m_showOctreeDebug && m_octreeEnabled)) {
+        const ImVec2 legendMin(
+            clipMin.x + 12.0f,
+            clipMax.y - 30.0f);
+        const ImVec2 legendMax(
+            legendMin.x + 365.0f,
+            legendMin.y + 22.0f);
+
+        m_viewportDrawList->AddRectFilled(
+            legendMin,
+            legendMax,
+            IM_COL32(12, 17, 22, 218),
+            3.0f);
+        m_viewportDrawList->AddText(
+            ImVec2(legendMin.x + 8.0f, legendMin.y + 4.0f),
+            IM_COL32(210, 220, 230, 245),
+            m_showOctreeDebug && m_octreeEnabled
+                ? "Culling: AABB verde/naranja/rojo | Octree azul/cian/rojo"
+                : "Culling: verde dentro | naranja intersecta | rojo fuera");
+    }
+
+    m_viewportDrawList->PopClipRect();
+}
+
 void GUI::drawEditorDockspace() {
     ImGuiViewport* mainViewport = ImGui::GetMainViewport();
     const float topOffset = 84.0f;
@@ -1656,56 +1901,382 @@ void GUI::drawLightingPanel(float* lightDir, float* lightColor) {
 	ImGui::End();
 }
 
-void GUI::drawStatsPanel(float deltaTime, unsigned int drawCalls) {
-	static float history[120] = {};
-	static int idx = 0;
-	static float accum = 0.0f;
-	static int frames = 0;
-	static float fps = 0.0f;
-	static float ms = 0.0f;
+void GUI::drawStatsPanel(
+    float deltaTime,
+    unsigned int drawCalls,
+    const PerformanceStats& cullingStats) {
 
-	const float dtMs = deltaTime * 1000.0f;
-	history[idx] = dtMs;
-	idx = (idx + 1) % IM_ARRAYSIZE(history);
-	accum += deltaTime;
-	++frames;
-	if (accum >= 0.25f) {
-		fps = frames / accum;
-		ms = (frames > 0) ? (accum / frames) * 1000.0f : 0.0f;
-		accum = 0.0f;
-		frames = 0;
-	}
-	m_cachedFps = fps;
-	m_cachedFrameMs = ms;
-	m_cachedDrawCalls = drawCalls;
+    static float frameHistory[120] = {};
+    static float cullingHistory[120] = {};
+    static int historyIndex = 0;
+    static int historySamples = 0;
+    static float accum = 0.0f;
+    static int frames = 0;
+    static float fps = 0.0f;
+    static float averageFrameMs = 0.0f;
 
-	if (!m_showPerformance) return;
-	ImGui::Begin("Rendimiento", &m_showPerformance);
-	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.30f, 0.92f, 0.70f, 1.0f));
-	ImGui::SetWindowFontScale(1.7f);
-	ImGui::Text("%.0f FPS", fps);
-	ImGui::SetWindowFontScale(1.0f);
-	ImGui::PopStyleColor();
-	ImGui::SameLine();
-	ImGui::TextDisabled("  %.2f ms", ms);
+    const float dtMs = deltaTime * 1000.0f;
+    frameHistory[historyIndex] = dtMs;
+    cullingHistory[historyIndex] = cullingStats.cullingTimeMs;
+    historyIndex = (historyIndex + 1) % IM_ARRAYSIZE(frameHistory);
+    historySamples = (std::min)(
+        historySamples + 1,
+        IM_ARRAYSIZE(frameHistory));
 
-	ImGui::Spacing();
-	ImGui::PlotLines("##frametimes", history, IM_ARRAYSIZE(history), idx,
-		"Frame time (ms)", 0.0f, 33.3f, ImVec2(ImGui::GetContentRegionAvail().x, 80.0f));
+    accum += deltaTime;
+    ++frames;
 
-	ImGui::Spacing(); ImGui::Separator();
+    if (accum >= 0.25f) {
+        fps = frames / accum;
+        averageFrameMs = (frames > 0)
+            ? (accum / frames) * 1000.0f
+            : 0.0f;
+        accum = 0.0f;
+        frames = 0;
+    }
 
-	// --- Metricas del frame ---
-	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.64f, 0.88f, 0.80f, 1.0f));
-	ImGui::Text("Draw calls:");
-	ImGui::PopStyleColor();
-	ImGui::SameLine();
-	ImGui::Text("%u", drawCalls);
+    float minFrameMs = 0.0f;
+    float maxFrameMs = 0.0f;
+    float historyAverageMs = 0.0f;
+    if (historySamples > 0) {
+        minFrameMs = frameHistory[0];
+        maxFrameMs = frameHistory[0];
+        float total = 0.0f;
+        for (int sampleIndex = 0;
+            sampleIndex < historySamples;
+            ++sampleIndex) {
+            const float value = frameHistory[sampleIndex];
+            minFrameMs = (std::min)(minFrameMs, value);
+            maxFrameMs = (std::max)(maxFrameMs, value);
+            total += value;
+        }
+        historyAverageMs = total /
+            static_cast<float>(historySamples);
+    }
 
-	ImGui::TextDisabled("Viewport: %.0f x %.0f", m_viewportSize.x, m_viewportSize.y);
-	ImGui::End();
+    m_cachedFps = fps;
+    m_cachedFrameMs = averageFrameMs;
+    m_cachedDrawCalls = drawCalls;
+
+    if (!m_showPerformance) {
+        return;
+    }
+
+    ImGui::Begin("Rendimiento", &m_showPerformance);
+
+    ImGui::PushStyleColor(
+        ImGuiCol_Text,
+        ImVec4(0.30f, 0.92f, 0.70f, 1.0f));
+    ImGui::SetWindowFontScale(1.7f);
+    ImGui::Text("%.0f FPS", fps);
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleColor();
+
+    ImGui::SameLine();
+    ImGui::TextDisabled("  %.2f ms", averageFrameMs);
+
+    ImGui::TextDisabled(
+        "Frame (120): min %.2f  prom %.2f  max %.2f ms",
+        minFrameMs,
+        historyAverageMs,
+        maxFrameMs);
+
+    ImGui::Spacing();
+    ImGui::PlotLines(
+        "##frametimes",
+        frameHistory,
+        historySamples,
+        historySamples == IM_ARRAYSIZE(frameHistory)
+            ? historyIndex
+            : 0,
+        "Frame time (ms)",
+        0.0f,
+        33.3f,
+        ImVec2(
+            ImGui::GetContentRegionAvail().x,
+            70.0f));
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::PushStyleColor(
+        ImGuiCol_Text,
+        ImVec4(0.64f, 0.88f, 0.80f, 1.0f));
+    ImGui::TextUnformatted("Render");
+    ImGui::PopStyleColor();
+
+    ImGui::Text("Draw calls reales: %u", drawCalls);
+    ImGui::Text(
+        "Submallas visibles: %u / %u",
+        cullingStats.visibleSubmeshes,
+        cullingStats.totalSubmeshes);
+    ImGui::Text(
+        "Triangulos visibles: %llu / %llu",
+        cullingStats.visibleTriangles,
+        cullingStats.totalTriangles);
+    ImGui::TextDisabled(
+        "Viewport: %.0f x %.0f",
+        m_viewportSize.x,
+        m_viewportSize.y);
+    ImGui::TextDisabled(
+        "Los draw calls incluyen pases de sombras y render adicional.");
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::PushStyleColor(
+        ImGuiCol_Text,
+        ImVec4(0.64f, 0.88f, 0.80f, 1.0f));
+    ImGui::TextUnformatted("Frustum Culling");
+    ImGui::PopStyleColor();
+
+    if (ImGui::Checkbox(
+            "Activar Frustum Culling",
+            &m_frustumCullingEnabled)) {
+
+        m_statusMessage = m_frustumCullingEnabled
+            ? "Frustum Culling activado"
+            : "Frustum Culling desactivado";
+    }
+
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip(
+            "Descarta objetos cuya AABB queda completamente fuera del volumen visible de la camara.");
+    }
+
+    ImGui::Spacing();
+    ImGui::Text(
+        "Objetos renderizables: %u",
+        cullingStats.totalRenderableObjects);
+
+    ImGui::PushStyleColor(
+        ImGuiCol_Text,
+        ImVec4(0.35f, 0.92f, 0.55f, 1.0f));
+    ImGui::Text(
+        "Visibles: %u",
+        cullingStats.visibleObjects);
+    ImGui::PopStyleColor();
+
+    ImGui::PushStyleColor(
+        ImGuiCol_Text,
+        ImVec4(0.95f, 0.45f, 0.40f, 1.0f));
+    ImGui::Text(
+        "Descartados: %u",
+        cullingStats.culledObjects);
+    ImGui::PopStyleColor();
+
+    ImGui::Text(
+        "Tiempo del pase: %.3f ms",
+        cullingStats.cullingTimeMs);
+
+    const float culledPercentage =
+        cullingStats.getCullPercentage();
+    const float triangleCullPercentage =
+        cullingStats.getTriangleCullPercentage();
+
+    ImGui::Text(
+        "Objetos descartados: %.1f%%",
+        culledPercentage);
+    ImGui::Text(
+        "Triangulos evitados: %llu (%.1f%%)",
+        cullingStats.culledTriangles,
+        triangleCullPercentage);
+
+    const float progress =
+        (std::max)(0.0f,
+            (std::min)(
+                1.0f,
+                culledPercentage / 100.0f));
+
+    char progressLabel[64]{};
+    sprintf_s(
+        progressLabel,
+        "%.1f%% objetos descartados",
+        culledPercentage);
+
+    ImGui::ProgressBar(
+        progress,
+        ImVec2(-1.0f, 0.0f),
+        progressLabel);
+
+    if (cullingStats.objectsWithoutBounds > 0) {
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Sin AABB: %u (se mantienen visibles por seguridad)",
+            cullingStats.objectsWithoutBounds);
+    }
+
+    if (!m_frustumCullingEnabled) {
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Culling desactivado: todos los objetos renderizables se envian al renderer.");
+    }
+
+    ImGui::Spacing();
+    ImGui::PlotLines(
+        "##cullingtimes",
+        cullingHistory,
+        historySamples,
+        historySamples == IM_ARRAYSIZE(cullingHistory)
+            ? historyIndex
+            : 0,
+        "Culling time (ms)",
+        0.0f,
+        2.0f,
+        ImVec2(
+            ImGui::GetContentRegionAvail().x,
+            55.0f));
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::PushStyleColor(
+        ImGuiCol_Text,
+        ImVec4(0.64f, 0.88f, 0.80f, 1.0f));
+    ImGui::TextUnformatted("Octree espacial");
+    ImGui::PopStyleColor();
+
+    if (ImGui::Checkbox(
+            "Usar Octree con Frustum",
+            &m_octreeEnabled)) {
+        m_statusMessage = m_octreeEnabled
+            ? "Octree activado"
+            : "Octree desactivado";
+    }
+
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip(
+            "Agrupa AABB en regiones. Los nodos completamente fuera se descartan de una sola vez.");
+    }
+
+    if (!m_frustumCullingEnabled && m_octreeEnabled) {
+        ImGui::TextDisabled(
+            "El Octree queda en espera mientras Frustum Culling este apagado.");
+    }
+
+    ImGui::SliderInt(
+        "Profundidad maxima",
+        &m_octreeMaxDepth,
+        1,
+        8);
+    ImGui::SliderInt(
+        "Objetos por nodo",
+        &m_octreeCapacity,
+        1,
+        32);
+
+    if (cullingStats.octreeEnabled) {
+        ImGui::Spacing();
+        ImGui::Text(
+            "Entradas indexadas: %u",
+            cullingStats.octreeEntries);
+        ImGui::Text(
+            "Nodos: %u | Hojas: %u",
+            cullingStats.octreeTotalNodes,
+            cullingStats.octreeLeafNodes);
+        ImGui::Text(
+            "Nodos probados: %u",
+            cullingStats.octreeTestedNodes);
+        ImGui::Text(
+            "Nodos descartados completos: %u",
+            cullingStats.octreeCulledNodes);
+        ImGui::Text(
+            "Nodos aceptados completos: %u",
+            cullingStats.octreeAcceptedNodes);
+        ImGui::Text(
+            "Pruebas AABB individuales: %u / %u",
+            cullingStats.octreeObjectTests,
+            cullingStats.octreeEntries);
+
+        const unsigned int avoidedTests =
+            cullingStats.octreeEntries > cullingStats.octreeObjectTests
+                ? cullingStats.octreeEntries - cullingStats.octreeObjectTests
+                : 0u;
+        ImGui::Text(
+            "Pruebas individuales evitadas: %u",
+            avoidedTests);
+
+        ImGui::Text(
+            "Construccion: %.3f ms | Consulta: %.3f ms",
+            cullingStats.octreeBuildTimeMs,
+            cullingStats.octreeQueryTimeMs);
+        ImGui::TextDisabled(
+            "Octree reconstruido este frame: %s",
+            cullingStats.octreeRebuiltThisFrame ? "Si" : "No");
+    }
+    else {
+        ImGui::TextDisabled(
+            "Modo actual: Frustum Culling directo (objeto por objeto).");
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::PushStyleColor(
+        ImGuiCol_Text,
+        ImVec4(0.64f, 0.88f, 0.80f, 1.0f));
+    ImGui::TextUnformatted("Debug visual");
+    ImGui::PopStyleColor();
+
+    ImGui::Checkbox(
+        "Mostrar AABB de culling",
+        &m_showCullingBounds);
+
+    if (m_showCullingBounds) {
+        ImGui::Indent();
+        ImGui::Checkbox(
+            "Incluir descartados",
+            &m_showCulledBounds);
+        ImGui::TextDisabled(
+            "Verde = dentro | Naranja = intersecta | Rojo = fuera");
+        ImGui::Unindent();
+    }
+
+    ImGui::Checkbox(
+        "Mostrar volumen del Frustum",
+        &m_showFrustumWireframe);
+
+    ImGui::Checkbox(
+        "Mostrar Octree",
+        &m_showOctreeDebug);
+
+    if (m_showOctreeDebug) {
+        ImGui::Indent();
+        ImGui::SliderInt(
+            "Profundidad debug Octree",
+            &m_octreeDebugDepth,
+            0,
+            m_octreeMaxDepth);
+        ImGui::TextDisabled(
+            "Azul = intersecta | Cian = dentro | Rojo = nodo descartado");
+        if (!m_octreeEnabled) {
+            ImGui::TextDisabled(
+                "Activa 'Usar Octree con Frustum' para generar las regiones.");
+        }
+        ImGui::Unindent();
+    }
+
+    if (m_showCullingBounds || m_showFrustumWireframe) {
+        ImGui::Checkbox(
+            "Congelar Frustum de debug",
+            &m_freezeFrustumDebug);
+
+        if (m_freezeFrustumDebug) {
+            ImGui::TextDisabled(
+                "El volumen de debug esta congelado. El culling real sigue usando la camara actual.");
+        }
+        else if (m_showFrustumWireframe) {
+            ImGui::TextDisabled(
+                "Tip: congelalo y mueve la camara para observar el volumen desde fuera.");
+        }
+    }
+
+    ImGui::End();
 }
-
 
 void GUI::drawConsolePanel() {
 	if (!m_showConsole) return;

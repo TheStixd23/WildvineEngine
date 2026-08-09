@@ -5,6 +5,9 @@ class Entity;
 class DeviceContext;
 class Camera;
 class RenderScene;
+class Frustum;
+class PerformanceProfiler;
+class Octree;
 
 /**
  * @class SceneGraph
@@ -81,7 +84,12 @@ public:
 
     void update(float deltaTime, DeviceContext& deviceContext);
     void render(DeviceContext& deviceContext);
-    void gatherRenderScene(RenderScene& outScene, const Camera& camera);
+    void gatherRenderScene(
+        RenderScene& outScene,
+        const Camera& camera,
+        const Frustum* frustum = nullptr,
+        PerformanceProfiler* profiler = nullptr,
+        Octree* octree = nullptr);
 
 private:
     void ensureRequiredComponents(Entity* entity);

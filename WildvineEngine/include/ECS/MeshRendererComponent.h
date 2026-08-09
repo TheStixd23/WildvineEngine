@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "Prerequisites.h"
 #include "ECS/Component.h"
 
@@ -19,11 +19,59 @@ public:
         m_mesh = nullptr;
         m_materialInstance = nullptr;
         m_materialInstances.clear();
+        clearLocalBounds();
     }
 
-    void setMesh(Mesh* mesh) { m_mesh = mesh; }
+    void setMesh(Mesh* mesh) {
+        if (m_mesh != mesh) {
+            m_mesh = mesh;
+            clearLocalBounds();
+        }
+    }
+
     Mesh* getMesh() const { return m_mesh; }
     bool hasMesh() const { return m_mesh != nullptr; }
+
+    void setLocalBounds(
+        const EU::Vector3& minimum,
+        const EU::Vector3& maximum) {
+
+        m_localBoundsMin = minimum;
+        m_localBoundsMax = maximum;
+        m_hasLocalBounds =
+            std::isfinite(minimum.x) &&
+            std::isfinite(minimum.y) &&
+            std::isfinite(minimum.z) &&
+            std::isfinite(maximum.x) &&
+            std::isfinite(maximum.y) &&
+            std::isfinite(maximum.z) &&
+            minimum.x <= maximum.x &&
+            minimum.y <= maximum.y &&
+            minimum.z <= maximum.z;
+    }
+
+    bool getLocalBounds(
+        EU::Vector3& outMinimum,
+        EU::Vector3& outMaximum) const {
+
+        if (!m_hasLocalBounds) {
+            return false;
+        }
+
+        outMinimum = m_localBoundsMin;
+        outMaximum = m_localBoundsMax;
+        return true;
+    }
+
+    bool hasLocalBounds() const {
+        return m_hasLocalBounds;
+    }
+
+    void clearLocalBounds() {
+        m_localBoundsMin = EU::Vector3();
+        m_localBoundsMax = EU::Vector3();
+        m_hasLocalBounds = false;
+    }
 
     void setMaterialInstance(MaterialInstance* materialInstance) {
         m_materialInstance = materialInstance;
@@ -106,4 +154,7 @@ private:
     bool m_castShadow = true;
     bool m_receiveShadow = true;
     bool m_selectable = true;
+    EU::Vector3 m_localBoundsMin{};
+    EU::Vector3 m_localBoundsMax{};
+    bool m_hasLocalBounds = false;
 };

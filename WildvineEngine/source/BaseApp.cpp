@@ -1264,6 +1264,9 @@ BaseApp::init() {
 		}
 
 		meshRenderer->setMesh(&m_carRenderMesh);
+		meshRenderer->setLocalBounds(
+			m_carModelLocalMin,
+			m_carModelLocalMax);
 		meshRenderer->setMaterialInstances(materialPointers);
 		meshRenderer->setVisible(true);
 		meshRenderer->setCastShadow(true);
@@ -2278,6 +2281,11 @@ BaseApp::update(float deltaTime) {
 
 	m_gui.drawViewportPanel(m_editorViewportPass.getSRV());
 	m_gui.drawViewportGrid(m_camera);
+	m_gui.drawFrustumCullingDebug(
+		m_actors,
+		m_camera,
+		m_debugFrustum,
+		&m_octree);
 	m_gui.drawLightGizmos(m_actors, m_camera);
 
 	if (!m_actors.empty() && m_gui.selectedActorIndex >= 0 &&
@@ -2355,7 +2363,10 @@ BaseApp::update(float deltaTime) {
 			m_gui.drawLightingPanel(&lightData.direction.x, &lightData.color.x);
 		}
 	}
-	m_gui.drawStatsPanel(deltaTime, m_lastDrawCalls);
+	m_gui.drawStatsPanel(
+		deltaTime,
+		m_lastDrawCalls,
+		m_performanceProfiler.getStats());
 	m_gui.drawTexturePreview();
 	m_gui.drawConsolePanel();
 	m_gui.drawContentBrowser(m_thumbnails);
@@ -2850,7 +2861,50 @@ BaseApp::render() {
 	m_deviceContext.m_drawCallCount = 0;
 
 	m_renderScene.clear();
-	m_sceneGraph.gatherRenderScene(m_renderScene, m_camera);
+
+	const bool frustumCullingEnabled =
+		m_gui.m_frustumCullingEnabled;
+	const bool octreeEnabled =
+		frustumCullingEnabled && m_gui.m_octreeEnabled;
+
+	m_performanceProfiler.beginFrame(
+		frustumCullingEnabled,
+		octreeEnabled);
+
+	// El Octree se reconstruye de forma segura durante gatherRenderScene.
+	// La configuracion se puede modificar en tiempo real desde el profiler.
+	m_octree.setConfig(
+		m_gui.m_octreeMaxDepth,
+		static_cast<unsigned int>(m_gui.m_octreeCapacity));
+	m_octree.setDebugCapture(
+		m_gui.m_showOctreeDebug && octreeEnabled,
+		m_gui.m_octreeDebugDepth);
+
+	// El frustum se actualiza siempre: aunque el culling este apagado,
+	// el modo debug puede seguir mostrando su volumen y las AABB.
+	m_cameraFrustum.update(
+		m_camera.getView(),
+		m_camera.getProj());
+
+	// El frustum de debug puede congelarse para mover la camara y observar
+	// desde fuera el volumen que estaba activo al congelarlo.
+	if (!m_gui.m_freezeFrustumDebug ||
+		!m_debugFrustumInitialized) {
+		m_debugFrustum = m_cameraFrustum;
+		m_debugFrustumInitialized = m_cameraFrustum.isValid();
+	}
+
+	m_sceneGraph.gatherRenderScene(
+		m_renderScene,
+		m_camera,
+		frustumCullingEnabled
+			? &m_cameraFrustum
+			: nullptr,
+		&m_performanceProfiler,
+		octreeEnabled
+			? &m_octree
+			: nullptr);
+
 	m_renderScene.skybox = &m_skybox;
 
 	m_renderPipeline.setShadowFactorDebugEnabled(m_gui.m_visualizeDeferredShadowFactor);
@@ -3598,6 +3652,9 @@ BaseApp::spawnCar(
 	}
 
 	meshRenderer->setMesh(&m_carRenderMesh);
+	meshRenderer->setLocalBounds(
+		m_carModelLocalMin,
+		m_carModelLocalMax);
 	meshRenderer->setMaterialInstances(materialPointers);
 	meshRenderer->setVisible(true);
 	meshRenderer->setCastShadow(true);
@@ -4503,6 +4560,9 @@ BaseApp::loadModelActor(const std::string& modelPath) {
 	EU::TSharedPointer<MeshRendererComponent> mr = a->getComponent<MeshRendererComponent>();
 	if (!mr) { mr = EU::MakeShared<MeshRendererComponent>(); a->addComponent(mr); }
 	mr->setMesh(&lm->mesh);
+	mr->setLocalBounds(
+		lm->localMin,
+		lm->localMax);
 
 	std::vector<MaterialInstance*> materialPointers;
 	materialPointers.reserve(
@@ -4657,6 +4717,17 @@ BaseApp::cloneActor(
                 }
 
                 clonedRenderer->setMesh(sourceRenderer->getMesh());
+
+                EU::Vector3 clonedBoundsMin;
+                EU::Vector3 clonedBoundsMax;
+                if (sourceRenderer->getLocalBounds(
+                        clonedBoundsMin,
+                        clonedBoundsMax)) {
+                    clonedRenderer->setLocalBounds(
+                        clonedBoundsMin,
+                        clonedBoundsMax);
+                }
+
                 clonedRenderer->setMaterialInstances(
                     sourceRenderer->getMaterialInstances());
                 clonedRenderer->setVisible(sourceRenderer->isVisible());

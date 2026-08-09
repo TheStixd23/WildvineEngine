@@ -6,6 +6,7 @@
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
 #include "ImGuizmo.h"
+#include "Rendering/PerformanceProfiler.h"
 
 class Viewport;
 class Window;
@@ -13,6 +14,8 @@ class Device;
 class DeviceContext;
 class Actor;
 class Camera;
+class Frustum;
+class Octree;
 
 
 struct AssetThumb {
@@ -52,6 +55,11 @@ public:
     void drawStudioTopRibbon();
     void drawViewportPanel(ID3D11ShaderResourceView* viewportSRV);
     void drawViewportGrid(Camera& cam);
+    void drawFrustumCullingDebug(
+        const std::vector<EU::TSharedPointer<Actor>>& actors,
+        Camera& camera,
+        const Frustum& debugFrustum,
+        const Octree* octree = nullptr);
     void drawEditorDockspace();
     void drawEditorStatusBar();
 
@@ -64,7 +72,10 @@ public:
         ID3D11ShaderResourceView* emissiveAlphaSRV);
     void drawLightingPanel(float* lightDir, float* lightColor);
    // void drawStatsPanel(float deltaTime);
-    void drawStatsPanel(float deltaTime, unsigned int drawCalls);
+    void drawStatsPanel(
+        float deltaTime,
+        unsigned int drawCalls,
+        const PerformanceStats& cullingStats);
 
     void drawContentBrowser(const std::vector<AssetThumb>& textureThumbs);
 
@@ -239,6 +250,21 @@ public:
     bool m_showRenderPanel = false;
     bool m_showGBufferPanel = false;
     bool m_showViewportOverlay = true;
+    bool m_frustumCullingEnabled = true;
+
+    // Debug visual del sistema de culling.
+    bool m_showCullingBounds = false;
+    bool m_showFrustumWireframe = false;
+    bool m_freezeFrustumDebug = false;
+    bool m_showCulledBounds = true;
+
+    // Octree. Se mantiene desactivado por defecto para conservar exactamente
+    // el comportamiento del Frustum Culling que ya funciona.
+    bool m_octreeEnabled = false;
+    bool m_showOctreeDebug = false;
+    int m_octreeMaxDepth = 5;
+    int m_octreeCapacity = 8;
+    int m_octreeDebugDepth = 2;
 
     ImGuiTextFilter m_assetFilter;
     float m_assetThumbnailSize = 86.0f;

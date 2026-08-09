@@ -15,6 +15,14 @@
 #include "Rendering/MaterialInstance.h"
 #include "Rendering/Mesh.h"
 #include "Rendering/RenderScene.h"
+#include "Rendering/Frustum.h"
+#include "Rendering/PerformanceProfiler.h"
+#include "Rendering/Octree.h"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <unordered_set>
 
 void SceneGraph::init() {
     m_entities.clear();
@@ -535,7 +543,144 @@ void SceneGraph::render(DeviceContext& deviceContext) {
 }
 
 void
-SceneGraph::gatherRenderScene(RenderScene& outScene, const Camera& camera) {
+SceneGraph::gatherRenderScene(
+    RenderScene& outScene,
+    const Camera& camera,
+    const Frustum* frustum,
+    PerformanceProfiler* profiler,
+    Octree* octree) {
+
+    if (profiler) {
+        profiler->beginCulling();
+    }
+
+    // ---------------------------------------------------------------------
+    // Octree opcional
+    // ---------------------------------------------------------------------
+    // Solo indexamos entidades renderizables con AABB valida. Si por cualquier
+    // motivo un actor no puede convertirse a AABB mundial, cae al camino
+    // conservador del Frustum normal y nunca desaparece por error.
+    std::unordered_set<Entity*> octreeIndexedEntities;
+    std::unordered_set<Entity*> octreeVisibleEntities;
+
+    auto calculateWorldBounds = [](
+        const EU::Vector3& localMinimum,
+        const EU::Vector3& localMaximum,
+        const XMMATRIX& world,
+        OctreeBounds& outBounds) -> bool {
+
+        const float largest =
+            (std::numeric_limits<float>::max)();
+        EU::Vector3 minimum(largest, largest, largest);
+        EU::Vector3 maximum(-largest, -largest, -largest);
+
+        for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex) {
+            const float x = (cornerIndex & 1)
+                ? localMaximum.x
+                : localMinimum.x;
+            const float y = (cornerIndex & 2)
+                ? localMaximum.y
+                : localMinimum.y;
+            const float z = (cornerIndex & 4)
+                ? localMaximum.z
+                : localMinimum.z;
+
+            const XMVECTOR worldCorner = XMVector3TransformCoord(
+                XMVectorSet(x, y, z, 1.0f),
+                world);
+
+            XMFLOAT3 point{};
+            XMStoreFloat3(&point, worldCorner);
+
+            if (!std::isfinite(point.x) ||
+                !std::isfinite(point.y) ||
+                !std::isfinite(point.z)) {
+                return false;
+            }
+
+            minimum.x = (std::min)(minimum.x, point.x);
+            minimum.y = (std::min)(minimum.y, point.y);
+            minimum.z = (std::min)(minimum.z, point.z);
+            maximum.x = (std::max)(maximum.x, point.x);
+            maximum.y = (std::max)(maximum.y, point.y);
+            maximum.z = (std::max)(maximum.z, point.z);
+        }
+
+        outBounds.minimum = minimum;
+        outBounds.maximum = maximum;
+        return outBounds.isValid();
+    };
+
+    if (frustum && octree) {
+        std::vector<OctreeEntry> octreeEntries;
+        octreeEntries.reserve(m_entities.size());
+
+        for (Entity* entity : m_entities) {
+            if (!entity) {
+                continue;
+            }
+
+            Actor* actor = dynamic_cast<Actor*>(entity);
+            if (actor && !actor->isActive()) {
+                continue;
+            }
+
+            EU::TSharedPointer<Transform> transform =
+                entity->getComponent<Transform>();
+            EU::TSharedPointer<MeshRendererComponent> meshRenderer =
+                entity->getComponent<MeshRendererComponent>();
+
+            if (!transform ||
+                !meshRenderer ||
+                !meshRenderer->isVisible() ||
+                !meshRenderer->hasMesh()) {
+                continue;
+            }
+
+            EU::Vector3 localMinimum;
+            EU::Vector3 localMaximum;
+            if (!meshRenderer->getLocalBounds(
+                    localMinimum,
+                    localMaximum)) {
+                continue;
+            }
+
+            OctreeBounds worldBounds{};
+            if (!calculateWorldBounds(
+                    localMinimum,
+                    localMaximum,
+                    transform->worldMatrix,
+                    worldBounds)) {
+                continue;
+            }
+
+            OctreeEntry entry{};
+            entry.entity = entity;
+            entry.bounds = worldBounds;
+            octreeEntries.push_back(entry);
+            octreeIndexedEntities.insert(entity);
+        }
+
+        octree->rebuild(octreeEntries);
+
+        std::vector<Entity*> visibleFromOctree;
+        octree->query(*frustum, visibleFromOctree);
+        octreeVisibleEntities.reserve(visibleFromOctree.size());
+        for (Entity* visibleEntity : visibleFromOctree) {
+            if (visibleEntity) {
+                octreeVisibleEntities.insert(visibleEntity);
+            }
+        }
+
+        if (profiler) {
+            profiler->setOctreeStatistics(
+                octree->getStatistics());
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Recopilacion de luces y objetos de render
+    // ---------------------------------------------------------------------
     for (Entity* entity : m_entities) {
         if (!entity) {
             continue;
@@ -564,9 +709,74 @@ SceneGraph::gatherRenderScene(RenderScene& outScene, const Camera& camera) {
         EU::TSharedPointer<MeshRendererComponent> meshRenderer =
             entity->getComponent<MeshRendererComponent>();
 
-        if (!meshRenderer || !transform ||
+        if (!meshRenderer ||
+            !transform ||
             !meshRenderer->isVisible() ||
             !meshRenderer->hasMesh()) {
+            continue;
+        }
+
+        bool visibleToCamera = true;
+        bool hadBounds = false;
+
+        if (frustum) {
+            EU::Vector3 localMinimum;
+            EU::Vector3 localMaximum;
+
+            hadBounds = meshRenderer->getLocalBounds(
+                localMinimum,
+                localMaximum);
+
+            if (hadBounds) {
+                const bool indexedByOctree =
+                    octree &&
+                    octreeIndexedEntities.find(entity) !=
+                        octreeIndexedEntities.end();
+
+                if (indexedByOctree) {
+                    visibleToCamera =
+                        octreeVisibleEntities.find(entity) !=
+                        octreeVisibleEntities.end();
+                }
+                else {
+                    // Fallback conservador para objetos que no pudieron entrar
+                    // en el Octree: usamos exactamente el Frustum ya probado.
+                    visibleToCamera = frustum->isBoxVisible(
+                        localMinimum,
+                        localMaximum,
+                        transform->worldMatrix);
+                }
+            }
+        }
+        else {
+            // Culling desactivado. Si existen bounds los contamos para el
+            // profiler, pero todos los objetos permanecen visibles.
+            hadBounds = meshRenderer->hasLocalBounds();
+        }
+
+        unsigned int submeshCount = 0;
+        unsigned long long triangleCount = 0;
+        if (meshRenderer->getMesh()) {
+            const std::vector<Submesh>& profilerSubmeshes =
+                meshRenderer->getMesh()->getSubmeshes();
+            submeshCount = static_cast<unsigned int>(
+                profilerSubmeshes.size());
+            for (const Submesh& submesh : profilerSubmeshes) {
+                triangleCount += static_cast<unsigned long long>(
+                    submesh.indexCount / 3u);
+            }
+        }
+
+        if (profiler) {
+            profiler->recordRenderable(
+                visibleToCamera,
+                hadBounds,
+                submeshCount,
+                triangleCount);
+        }
+
+        // Politica conservadora: un objeto sin bounds nunca se descarta.
+        if (!visibleToCamera) {
             continue;
         }
 
@@ -629,5 +839,9 @@ SceneGraph::gatherRenderScene(RenderScene& outScene, const Camera& camera) {
             transparentObject.transparent = true;
             outScene.transparentObjects.push_back(transparentObject);
         }
+    }
+
+    if (profiler) {
+        profiler->endCulling();
     }
 }

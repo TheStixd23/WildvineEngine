@@ -447,7 +447,11 @@
     <ClCompile Include="source\GUI\GUI.cpp" />
     <ClCompile Include="source\Rendering\DeferredRenderer.cpp" />
     <ClCompile Include="source\Rendering\ForwardRenderer.cpp" />
+    <ClCompile Include="source\Rendering\Frustum.cpp" />
     <ClCompile Include="source\Rendering\MaterialInstance.cpp" />
+    <ClCompile Include="source\Rendering\Octree.cpp" />
+    <ClCompile Include="source\Rendering\OctreeNode.cpp" />
+    <ClCompile Include="source\Rendering\PerformanceProfiler.cpp" />
     <ClCompile Include="source\Rendering\RenderPipeline.cpp" />
     <ClCompile Include="source\Rendering\RenderScene.cpp" />
     <ClCompile Include="source\InputLayout.cpp" />
@@ -498,11 +502,15 @@
     <ClInclude Include="include\EngineUtilities\Utilities\EditorViewportPass.h" />
     <ClInclude Include="include\Rendering\DeferredRenderer.h" />
     <ClInclude Include="include\Rendering\ForwardRenderer.h" />
+    <ClInclude Include="include\Rendering\Frustum.h" />
     <ClInclude Include="include\Rendering\ISceneRenderer.h" />
     <ClInclude Include="include\Rendering\ISceneRendererer.h" />
     <ClInclude Include="include\Rendering\Material.h" />
     <ClInclude Include="include\Rendering\MaterialInstance.h" />
     <ClInclude Include="include\Rendering\Mesh.h" />
+    <ClInclude Include="include\Rendering\Octree.h" />
+    <ClInclude Include="include\Rendering\OctreeNode.h" />
+    <ClInclude Include="include\Rendering\PerformanceProfiler.h" />
     <ClInclude Include="include\Rendering\RenderPipeline.h" />
     <ClInclude Include="include\Rendering\RenderScene.h" />
     <ClInclude Include="include\Rendering\RenderTypes.h" />
