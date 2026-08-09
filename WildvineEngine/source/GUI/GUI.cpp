@@ -8,6 +8,7 @@
 #include "EngineUtilities/Utilities/Camera.h"
 #include "ECS/MeshRendererComponent.h"
 #include "ECS/LightComponent.h"
+#include "ECS/ParticleEmitterComponent.h"
 #include "ECS/Transform.h"
 #include "Rendering/Frustum.h"
 #include "Rendering/Octree.h"
@@ -404,7 +405,11 @@ void GUI::inspectorGeneral(EU::TSharedPointer<Actor> actor) {
 
     auto lightComponent = actor->getComponent<LightComponent>();
     auto meshRenderer = actor->getComponent<MeshRendererComponent>();
-    if (lightComponent) {
+    auto particleEmitter = actor->getComponent<ParticleEmitterComponent>();
+    if (particleEmitter) {
+        ImGui::TextDisabled("  Tipo: Particulas");
+    }
+    else if (lightComponent) {
         ImGui::TextDisabled("  Tipo: Luz");
     }
     else if (meshRenderer) {
@@ -499,6 +504,184 @@ void GUI::inspectorGeneral(EU::TSharedPointer<Actor> actor) {
                 m_aimLightRequested = true;
             }
         }
+
+        ImGui::Unindent(10.0f);
+    }
+
+    if (particleEmitter &&
+        ImGui::CollapsingHeader("Emisor de particulas", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Indent(10.0f);
+
+        ParticleEmitterSettings& settings = particleEmitter->getSettings();
+
+        bool emitterEnabled = particleEmitter->isEnabled();
+        if (ImGui::Checkbox("Emisor activo", &emitterEnabled)) {
+            particleEmitter->setEnabled(emitterEnabled);
+        }
+
+        const char* presetNames[] = {
+            "Personalizado", "Humo", "Fuego", "Chispas", "Polvo"
+        };
+        int presetIndex = static_cast<int>(particleEmitter->getPreset());
+        if (ImGui::Combo("Preset", &presetIndex,
+            presetNames, IM_ARRAYSIZE(presetNames))) {
+            particleEmitter->applyPreset(
+                static_cast<ParticlePreset>(presetIndex));
+        }
+
+        ImGui::Spacing();
+        if (particleEmitter->isPlaying()) {
+            if (ImGui::Button("Pausar")) particleEmitter->pause();
+        }
+        else {
+            if (ImGui::Button("Play")) particleEmitter->play();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reiniciar")) particleEmitter->restart();
+        ImGui::SameLine();
+        if (ImGui::Button("Burst")) particleEmitter->triggerBurst();
+        ImGui::SameLine();
+        if (ImGui::Button("Stop")) particleEmitter->stop();
+
+        ImGui::Spacing();
+        ImGui::TextDisabled("Emision");
+        ImGui::Separator();
+
+        const char* emissionModes[] = { "Continua", "Burst" };
+        int emissionMode = static_cast<int>(settings.emissionMode);
+        if (ImGui::Combo("Modo", &emissionMode,
+            emissionModes, IM_ARRAYSIZE(emissionModes))) {
+            settings.emissionMode =
+                static_cast<ParticleEmissionMode>(emissionMode);
+        }
+
+        int maxParticles = static_cast<int>(settings.maxParticles);
+        if (ImGui::SliderInt("Max particulas", &maxParticles, 1,
+            static_cast<int>(ParticleEmitterComponent::kGpuParticleCapacity))) {
+            settings.maxParticles = static_cast<unsigned int>(maxParticles);
+        }
+
+        if (settings.emissionMode == ParticleEmissionMode::Continuous) {
+            ImGui::DragFloat("Particulas / segundo", &settings.spawnRate,
+                0.5f, 0.0f, 1000.0f, "%.1f");
+            ImGui::Checkbox("Loop", &settings.loop);
+            if (!settings.loop) {
+                ImGui::DragFloat("Duracion", &settings.duration,
+                    0.1f, 0.05f, 120.0f, "%.2f s");
+            }
+        }
+        else {
+            int burstCount = static_cast<int>(settings.burstCount);
+            if (ImGui::SliderInt("Cantidad Burst", &burstCount, 1,
+                static_cast<int>(ParticleEmitterComponent::kGpuParticleCapacity))) {
+                settings.burstCount = static_cast<unsigned int>(burstCount);
+            }
+        }
+
+        ImGui::DragFloat("Vida minima", &settings.lifetimeMin,
+            0.05f, 0.01f, 30.0f, "%.2f s");
+        ImGui::DragFloat("Vida maxima", &settings.lifetimeMax,
+            0.05f, 0.01f, 30.0f, "%.2f s");
+
+        ImGui::Spacing();
+        ImGui::TextDisabled("Movimiento");
+        ImGui::Separator();
+
+        float direction[3] = {
+            settings.direction.x,
+            settings.direction.y,
+            settings.direction.z
+        };
+        if (ImGui::DragFloat3("Direccion", direction, 0.02f, -1.0f, 1.0f, "%.2f")) {
+            settings.direction = EU::Vector3(
+                direction[0], direction[1], direction[2]);
+        }
+
+        ImGui::DragFloat("Velocidad minima", &settings.speedMin,
+            0.05f, 0.0f, 50.0f, "%.2f");
+        ImGui::DragFloat("Velocidad maxima", &settings.speedMax,
+            0.05f, 0.0f, 50.0f, "%.2f");
+        ImGui::SliderFloat("Dispersion", &settings.spread,
+            0.0f, 1.0f, "%.2f");
+        ImGui::DragFloat("Radio de emision", &settings.spawnRadius,
+            0.01f, 0.0f, 20.0f, "%.2f");
+        ImGui::DragFloat("Gravedad Y", &settings.gravityY,
+            0.05f, -30.0f, 30.0f, "%.2f");
+
+        ImGui::Spacing();
+        ImGui::TextDisabled("Apariencia");
+        ImGui::Separator();
+
+        ImGui::DragFloat("Tamano inicial", &settings.startSize,
+            0.01f, 0.001f, 20.0f, "%.3f");
+        ImGui::DragFloat("Tamano final", &settings.endSize,
+            0.01f, 0.001f, 20.0f, "%.3f");
+
+        float color[4] = {
+            settings.color.x,
+            settings.color.y,
+            settings.color.z,
+            settings.color.w
+        };
+        if (ImGui::ColorEdit4("Color / Alpha", color)) {
+            settings.color = XMFLOAT4(
+                color[0], color[1], color[2], color[3]);
+        }
+
+        ImGui::Checkbox("Blend aditivo", &settings.additiveBlend);
+        ImGui::DragFloat("Emisivo", &settings.emissiveStrength,
+            0.05f, 0.0f, 20.0f, "%.2f");
+        ImGui::SliderFloat("Recorte Alpha", &settings.alphaCutoff,
+            0.0f, 0.50f, "%.3f");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Elimina el fondo transparente del PNG.\n"
+                "Bajalo para bordes mas suaves; subelo si aun ves el cuadro.");
+        }
+
+        char texturePath[320] = {};
+        strcpy_s(texturePath, sizeof(texturePath),
+            particleEmitter->getTexturePath().c_str());
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::InputText("Textura", texturePath,
+            IM_ARRAYSIZE(texturePath), ImGuiInputTextFlags_EnterReturnsTrue)) {
+            if (particleEmitter->setTexturePath(texturePath)) {
+                m_statusMessage = "Textura de particulas cargada";
+            }
+            else {
+                m_statusMessage = "Textura no encontrada; se usa fallback";
+            }
+        }
+        ImGui::TextDisabled("Pulsa Enter para recargar la ruta.");
+        if (particleEmitter->hasValidParticleTexture()) {
+            ImGui::TextColored(
+                ImVec4(0.30f, 0.90f, 0.45f, 1.0f),
+                "Textura: OK");
+            const std::string& resolved =
+                particleEmitter->getResolvedTexturePath();
+            if (!resolved.empty() && ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s", resolved.c_str());
+            }
+        }
+        else {
+            ImGui::TextColored(
+                ImVec4(1.00f, 0.45f, 0.30f, 1.0f),
+                "Textura: FALLBACK (revisa Assets/Textures/Particles)");
+        }
+
+        particleEmitter->sanitizeSettings();
+
+        ImGui::Spacing();
+        ImGui::TextDisabled("Estado");
+        ImGui::Separator();
+        ImGui::Text("Activas: %u / %u",
+            particleEmitter->getActiveParticleCount(),
+            particleEmitter->getCapacity());
+        ImGui::Text("Spawn este frame: %u",
+            particleEmitter->getSpawnedThisFrame());
+        ImGui::TextDisabled("Simulacion: %.3f ms | Billboards: %.3f ms",
+            particleEmitter->getLastSimulationTimeMs(),
+            particleEmitter->getLastBillboardTimeMs());
 
         ImGui::Unindent(10.0f);
     }
@@ -598,6 +781,15 @@ void GUI::outliner(const std::vector<EU::TSharedPointer<Actor>>& actors) {
     if (ImGui::SmallButton("+")) ImGui::OpenPopup("##OutlinerCreate");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Crear luz u organizacion de estudio");
     if (ImGui::BeginPopup("##OutlinerCreate")) {
+        if (ImGui::BeginMenu("Particulas")) {
+            if (ImGui::MenuItem("Humo")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Smoke);
+            if (ImGui::MenuItem("Fuego")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Fire);
+            if (ImGui::MenuItem("Chispas")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Sparks);
+            if (ImGui::MenuItem("Polvo")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Dust);
+            if (ImGui::MenuItem("Personalizado")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Custom);
+            ImGui::EndMenu();
+        }
+        ImGui::Separator();
         if (ImGui::MenuItem("Luz direccional")) m_createDirectionalLightRequested = true;
         if (ImGui::MenuItem("Luz puntual")) m_createPointLightRequested = true;
         if (ImGui::MenuItem("Spotlight")) m_createSpotLightRequested = true;
@@ -619,6 +811,10 @@ void GUI::outliner(const std::vector<EU::TSharedPointer<Actor>>& actors) {
             EU::TSharedPointer<LightComponent> light =
                 actor->getComponent<LightComponent>();
             if (light) light->setEnabled(true);
+
+            EU::TSharedPointer<ParticleEmitterComponent> particles =
+                actor->getComponent<ParticleEmitterComponent>();
+            if (particles) particles->setEnabled(true);
         }
     }
 
@@ -690,6 +886,8 @@ void GUI::outliner(const std::vector<EU::TSharedPointer<Actor>>& actors) {
             actor->getComponent<MeshRendererComponent>();
         EU::TSharedPointer<LightComponent> light =
             actor->getComponent<LightComponent>();
+        EU::TSharedPointer<ParticleEmitterComponent> particles =
+            actor->getComponent<ParticleEmitterComponent>();
         EU::TSharedPointer<HierarchyComponent> hierarchy =
             actor->getComponent<HierarchyComponent>();
 
@@ -704,6 +902,12 @@ void GUI::outliner(const std::vector<EU::TSharedPointer<Actor>>& actors) {
             itemEnabled = light->isEnabled();
             if (ImGui::Checkbox("##vis", &itemEnabled)) {
                 light->setEnabled(itemEnabled);
+            }
+        }
+        else if (particles) {
+            itemEnabled = particles->isEnabled();
+            if (ImGui::Checkbox("##vis", &itemEnabled)) {
+                particles->setEnabled(itemEnabled);
             }
         }
         else if (ImGui::Checkbox("##vis", &itemEnabled)) {
@@ -733,7 +937,8 @@ void GUI::outliner(const std::vector<EU::TSharedPointer<Actor>>& actors) {
         if (!hasActorChildren) flags |= ImGuiTreeNodeFlags_Leaf;
         if (selectedActorIndex == index) flags |= ImGuiTreeNodeFlags_Selected;
 
-        const char* typePrefix = light ? "[L]" : (meshRenderer ? "[M]" : "[A]");
+        const char* typePrefix = particles ? "[P]" :
+            (light ? "[L]" : (meshRenderer ? "[M]" : "[A]"));
         if (!itemEnabled) {
             ImGui::PushStyleColor(
                 ImGuiCol_Text,
@@ -831,6 +1036,12 @@ void GUI::outliner(const std::vector<EU::TSharedPointer<Actor>>& actors) {
                 const bool enabled = light->isEnabled();
                 if (ImGui::MenuItem(enabled ? "Apagar luz" : "Encender luz")) {
                     light->setEnabled(!enabled);
+                }
+            }
+            if (particles) {
+                const bool enabled = particles->isEnabled();
+                if (ImGui::MenuItem(enabled ? "Ocultar particulas" : "Mostrar particulas")) {
+                    particles->setEnabled(!enabled);
                 }
             }
 
@@ -1110,6 +1321,15 @@ void GUI::drawStudioTopRibbon() {
             }
 
             if (ImGui::BeginMenu("Crear")) {
+                if (ImGui::BeginMenu("Particulas")) {
+                    if (ImGui::MenuItem("Humo")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Smoke);
+                    if (ImGui::MenuItem("Fuego")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Fire);
+                    if (ImGui::MenuItem("Chispas")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Sparks);
+                    if (ImGui::MenuItem("Polvo")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Dust);
+                    if (ImGui::MenuItem("Personalizado")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Custom);
+                    ImGui::EndMenu();
+                }
+                ImGui::Separator();
                 if (ImGui::MenuItem("Luz direccional")) m_createDirectionalLightRequested = true;
                 if (ImGui::MenuItem("Luz puntual")) m_createPointLightRequested = true;
                 if (ImGui::MenuItem("Spotlight")) m_createSpotLightRequested = true;
@@ -1257,6 +1477,18 @@ void GUI::drawStudioTopRibbon() {
             m_showContentBrowser = true;
             m_requestedContentTab = 0;
             ImGui::SetWindowFocus("Recursos");
+        }
+        ImGui::SameLine();
+        if (actionButton("##WV_Particles", "Particulas", "Crear", false)) {
+            ImGui::OpenPopup("##CrearParticulasPopup");
+        }
+        if (ImGui::BeginPopup("##CrearParticulasPopup")) {
+            if (ImGui::MenuItem("Humo")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Smoke);
+            if (ImGui::MenuItem("Fuego")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Fire);
+            if (ImGui::MenuItem("Chispas")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Sparks);
+            if (ImGui::MenuItem("Polvo")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Dust);
+            if (ImGui::MenuItem("Personalizado")) m_createParticlePresetRequested = static_cast<int>(ParticlePreset::Custom);
+            ImGui::EndPopup();
         }
         ImGui::SameLine();
         if (actionButton("##WV_Light", "Luces", "Crear", false)) {
@@ -2211,6 +2443,31 @@ void GUI::drawStatsPanel(
         ImGui::TextDisabled(
             "Modo actual: Frustum Culling directo (objeto por objeto).");
     }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::PushStyleColor(
+        ImGuiCol_Text,
+        ImVec4(0.64f, 0.88f, 0.80f, 1.0f));
+    ImGui::TextUnformatted("Particulas");
+    ImGui::PopStyleColor();
+
+    ImGui::Text("Emisores visibles: %u / %u",
+        cullingStats.visibleParticleEmitters,
+        cullingStats.particleEmitters);
+    ImGui::Text("Particulas activas: %u / %u",
+        cullingStats.activeParticles,
+        cullingStats.particleCapacity);
+    ImGui::Text("Spawn este frame: %u",
+        cullingStats.particlesSpawnedThisFrame);
+    ImGui::Text("CPU simulacion: %.3f ms",
+        cullingStats.particleSimulationTimeMs);
+    ImGui::Text("CPU billboards: %.3f ms",
+        cullingStats.particleBillboardTimeMs);
+    ImGui::TextDisabled(
+        "Cada emisor activo se compacta en un solo draw call transparente.");
 
     ImGui::Spacing();
     ImGui::Separator();

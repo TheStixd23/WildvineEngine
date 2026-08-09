@@ -22,6 +22,7 @@
 #include "EngineUtilities/Utilities/EditorViewportPass.h"
 #include "ECS/LightComponent.h"
 #include "ECS/MeshRendererComponent.h"
+#include "ECS/ParticleEmitterComponent.h"
 #include "Rendering/Material.h"
 #include "Rendering/MaterialInstance.h"
 #include "Rendering/Mesh.h"
@@ -245,6 +246,13 @@ private:
 		float range,
 		bool castShadow);
 
+	EU::TSharedPointer<Actor> spawnParticleEmitterActor(
+		ParticlePreset preset,
+		const std::string& name,
+		const EU::Vector3& position);
+
+	void updateParticleBillboards();
+
 	void createStudioLightRig();
 	void aimLightAtActor(
 		const EU::TSharedPointer<Actor>& lightActor,
@@ -332,6 +340,7 @@ private:
 	Material m_pbrMaterial;
 	Material m_maskedPbrMaterial;
 	Material m_transparentPbrMaterial;
+	Material m_particleAdditiveMaterial;
 
 	EditorViewportPass m_editorViewportPass;
 	RenderPipeline m_renderPipeline;

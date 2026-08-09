@@ -9,6 +9,7 @@
 #include "ECS\Transform.h"
 #include "ECS\LightComponent.h"
 #include "ECS\MeshRendererComponent.h"
+#include "ECS/ParticleEmitterComponent.h"
 #include "DeviceContext.h"
 #include "EngineUtilities/Utilities/Camera.h"
 #include "Rendering/Material.h"
@@ -704,6 +705,69 @@ SceneGraph::gatherRenderScene(
 
             const LightData& light = lightComponent->getLightData();
             outScene.addLight(light);
+        }
+
+        // -------------------------------------------------------------
+        // Particle Emitter
+        // -------------------------------------------------------------
+        // Los billboards ya contienen vertices en espacio mundial, por eso el
+        // RenderObject de particulas usa world = Identity. El emisor se prueba
+        // contra el Frustum mediante sus bounds locales dinamicos.
+        EU::TSharedPointer<ParticleEmitterComponent> particleEmitter =
+            entity->getComponent<ParticleEmitterComponent>();
+
+        if (particleEmitter && transform && particleEmitter->isEnabled()) {
+            bool particleVisible = true;
+            bool particleHadBounds = false;
+            EU::Vector3 particleBoundsMin;
+            EU::Vector3 particleBoundsMax;
+
+            particleHadBounds = particleEmitter->getLocalBounds(
+                particleBoundsMin,
+                particleBoundsMax);
+
+            if (frustum && particleHadBounds) {
+                particleVisible = frustum->isBoxVisible(
+                    particleBoundsMin,
+                    particleBoundsMax,
+                    transform->worldMatrix);
+            }
+
+            if (profiler) {
+                profiler->recordParticleEmitter(
+                    particleVisible,
+                    particleEmitter->getActiveParticleCount(),
+                    particleEmitter->getCapacity(),
+                    particleEmitter->getSpawnedThisFrame(),
+                    particleEmitter->getLastSimulationTimeMs(),
+                    particleEmitter->getLastBillboardTimeMs());
+            }
+
+            if (particleVisible && particleEmitter->isRenderReady()) {
+                RenderObject particleObject{};
+                particleObject.mesh = particleEmitter->getMesh();
+                particleObject.materialInstance =
+                    particleEmitter->getMaterialInstance();
+                particleObject.world = XMMatrixIdentity();
+                particleObject.castShadow = false;
+                particleObject.receiveShadow = false;
+                particleObject.transparent = true;
+
+                XMFLOAT4X4 emitterWorldMatrix{};
+                XMStoreFloat4x4(
+                    &emitterWorldMatrix,
+                    transform->worldMatrix);
+                const EU::Vector3 emitterWorldPosition(
+                    emitterWorldMatrix._41,
+                    emitterWorldMatrix._42,
+                    emitterWorldMatrix._43);
+                const EU::Vector3 cameraDelta =
+                    emitterWorldPosition - camera.getPosition();
+                particleObject.distanceToCamera =
+                    cameraDelta.magnitudeSquared();
+
+                outScene.transparentObjects.push_back(particleObject);
+            }
         }
 
         EU::TSharedPointer<MeshRendererComponent> meshRenderer =

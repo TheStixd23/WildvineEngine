@@ -179,6 +179,9 @@
     <ClCompile Include="source\Rendering\OctreeNode.cpp">
       <Filter>source\Rendering</Filter>
     </ClCompile>
+    <ClCompile Include="source\ECS\ParticleEmitterComponent.cpp">
+      <Filter>source\ECS</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="WildvineEngine.fx">
@@ -387,6 +390,12 @@
     </ClInclude>
     <ClInclude Include="include\Rendering\OctreeNode.h">
       <Filter>include\Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Rendering\Particle.h">
+      <Filter>include\Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="include\ECS\ParticleEmitterComponent.h">
+      <Filter>include\ECS</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

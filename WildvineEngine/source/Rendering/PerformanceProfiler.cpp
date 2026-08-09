@@ -1,6 +1,7 @@
 #include "Rendering/PerformanceProfiler.h"
 #include "Rendering/Octree.h"
 
+#include <algorithm>
 float PerformanceStats::getCullPercentage() const {
     if (totalRenderableObjects == 0) {
         return 0.0f;
@@ -87,4 +88,24 @@ void PerformanceProfiler::setOctreeStatistics(
     m_stats.octreeBuildTimeMs = statistics.buildTimeMs;
     m_stats.octreeQueryTimeMs = statistics.queryTimeMs;
     m_stats.octreeRebuiltThisFrame = statistics.rebuiltThisFrame;
+}
+
+
+void PerformanceProfiler::recordParticleEmitter(
+    bool visible,
+    unsigned int activeParticles,
+    unsigned int capacity,
+    unsigned int spawnedThisFrame,
+    float simulationTimeMs,
+    float billboardTimeMs) {
+
+    ++m_stats.particleEmitters;
+    if (visible) {
+        ++m_stats.visibleParticleEmitters;
+    }
+    m_stats.activeParticles += activeParticles;
+    m_stats.particleCapacity += capacity;
+    m_stats.particlesSpawnedThisFrame += spawnedThisFrame;
+    m_stats.particleSimulationTimeMs += (std::max)(0.0f, simulationTimeMs);
+    m_stats.particleBillboardTimeMs += (std::max)(0.0f, billboardTimeMs);
 }

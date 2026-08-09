@@ -107,6 +107,11 @@ public:
         m_createStudioRigRequested = false;
         return result;
     }
+    int consumeCreateParticleEmitterRequest() {
+        const int result = m_createParticlePresetRequested;
+        m_createParticlePresetRequested = -1;
+        return result;
+    }
     bool consumeAimLightRequest() {
         bool result = m_aimLightRequested;
         m_aimLightRequested = false;
@@ -228,6 +233,7 @@ public:
     bool m_createSpotLightRequested = false;
     bool m_createStudioRigRequested = false;
     bool m_aimLightRequested = false;
+    int m_createParticlePresetRequested = -1;
 
     // Solicitud generada por drag & drop en la jerarquia.
     // parentIndex == -1 significa mover el actor a la raiz de la escena.

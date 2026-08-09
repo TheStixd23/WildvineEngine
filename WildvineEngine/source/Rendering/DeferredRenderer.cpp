@@ -664,7 +664,7 @@ DeferredRenderer::renderGeometryObject(DeviceContext& deviceContext, const Rende
 		m_cbPerMaterial.AO = params.ao;
 		m_cbPerMaterial.NormalScale = params.normalScale;
 		m_cbPerMaterial.EmissiveStrength = params.emissiveStrength;
-		m_cbPerMaterial.AlphaCutoff = material->getDomain() == MaterialDomain::Masked ? params.alphaCutoff : 0.0f;
+		m_cbPerMaterial.AlphaCutoff = params.alphaCutoff;
 		m_perMaterialBuffer.update(deviceContext, nullptr, 0, nullptr, &m_cbPerMaterial, 0, 0);
 		m_perMaterialBuffer.render(deviceContext, 2, 1, true);
 
@@ -824,7 +824,7 @@ DeferredRenderer::renderForwardObject(DeviceContext& deviceContext,
 		m_cbPerMaterial.AO = params.ao;
 		m_cbPerMaterial.NormalScale = params.normalScale;
 		m_cbPerMaterial.EmissiveStrength = params.emissiveStrength;
-		m_cbPerMaterial.AlphaCutoff = material->getDomain() == MaterialDomain::Masked ? params.alphaCutoff : 0.0f;
+		m_cbPerMaterial.AlphaCutoff = params.alphaCutoff;
 		m_perMaterialBuffer.update(deviceContext, nullptr, 0, nullptr, &m_cbPerMaterial, 0, 0);
 		m_perMaterialBuffer.render(deviceContext, 2, 1, true);
 

@@ -37,6 +37,15 @@ struct PerformanceStats {
     float octreeQueryTimeMs = 0.0f;
     bool octreeRebuiltThisFrame = false;
 
+    // Sistema de particulas
+    unsigned int particleEmitters = 0;
+    unsigned int visibleParticleEmitters = 0;
+    unsigned int activeParticles = 0;
+    unsigned int particleCapacity = 0;
+    unsigned int particlesSpawnedThisFrame = 0;
+    float particleSimulationTimeMs = 0.0f;
+    float particleBillboardTimeMs = 0.0f;
+
     float getCullPercentage() const;
     float getTriangleCullPercentage() const;
 };
@@ -65,6 +74,16 @@ public:
 
     /** Copia al profiler las estadisticas espaciales del Octree. */
     void setOctreeStatistics(const OctreeStatistics& statistics);
+
+    /** Registra estadisticas de un emisor de particulas. */
+    void recordParticleEmitter(
+        bool visible,
+        unsigned int activeParticles,
+        unsigned int capacity,
+        unsigned int spawnedThisFrame,
+        float simulationTimeMs,
+        float billboardTimeMs);
+
 
     const PerformanceStats& getStats() const {
         return m_stats;

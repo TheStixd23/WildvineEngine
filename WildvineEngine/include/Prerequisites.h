@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 // Librerias STD
 #include <string>
 #include <sstream>
@@ -142,5 +142,6 @@ enum
     MESH = 2,
     MATERIAL = 3,
     HIERARCHY = 4,
-    LIGHT = 5
+    LIGHT = 5,
+    PARTICLE_EMITTER = 6
 };

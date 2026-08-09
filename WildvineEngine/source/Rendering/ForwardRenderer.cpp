@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file ForwardRenderer.cpp
  * @brief Implementa la logica de ForwardRenderer dentro del subsistema Rendering.
  * @ingroup rendering
@@ -332,10 +332,7 @@ ForwardRenderer::renderObject(DeviceContext& deviceContext,
 		m_cbPerMaterial.AO = params.ao;
 		m_cbPerMaterial.NormalScale = params.normalScale;
 		m_cbPerMaterial.EmissiveStrength = params.emissiveStrength;
-		m_cbPerMaterial.AlphaCutoff = 0.0f;
-		if (material->getDomain() == MaterialDomain::Masked) {
-			m_cbPerMaterial.AlphaCutoff = params.alphaCutoff;
-		}
+		m_cbPerMaterial.AlphaCutoff = params.alphaCutoff;
 		m_perMaterialBuffer.update(deviceContext, nullptr, 0, nullptr, &m_cbPerMaterial, 0, 0);
 		m_perMaterialBuffer.render(deviceContext, 2, 1, true);
 

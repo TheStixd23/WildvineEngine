@@ -1079,6 +1079,10 @@ BaseApp::init() {
 		m_transparentPbrMaterial,
 		MaterialDomain::Transparent,
 		BlendMode::Alpha);
+	setupBaseMaterial(
+		m_particleAdditiveMaterial,
+		MaterialDomain::Transparent,
+		BlendMode::Additive);
 
 	auto setupMaterial =
 		[this](
@@ -1472,6 +1476,13 @@ BaseApp::deleteAutosaveFile() {
 
 void
 BaseApp::clearCurrentScene() {
+	for (const auto& actor : m_actors) {
+		if (actor.isNull()) continue;
+		EU::TSharedPointer<ParticleEmitterComponent> emitter =
+			actor->getComponent<ParticleEmitterComponent>();
+		if (emitter) emitter->destroy();
+	}
+
 	m_sceneGraph.destroy();
 	m_sceneGraph.init();
 	m_actors.clear();
@@ -2415,6 +2426,35 @@ BaseApp::update(float deltaTime) {
 			createStudioLightRig();
 		}
 
+		const int particlePresetRequest =
+			m_gui.consumeCreateParticleEmitterRequest();
+		if (particlePresetRequest >= 0) {
+			const ParticlePreset preset = static_cast<ParticlePreset>(
+				particlePresetRequest);
+			const char* baseName = "Particle Emitter";
+			switch (preset) {
+			case ParticlePreset::Smoke: baseName = "Smoke Emitter"; break;
+			case ParticlePreset::Fire: baseName = "Fire Emitter"; break;
+			case ParticlePreset::Sparks: baseName = "Sparks Emitter"; break;
+			case ParticlePreset::Dust: baseName = "Dust Emitter"; break;
+			case ParticlePreset::Custom:
+			default: baseName = "Particle Emitter"; break;
+			}
+
+			EU::TSharedPointer<Actor> particleActor =
+				spawnParticleEmitterActor(
+					preset,
+					baseName,
+					spawnPosition);
+			if (particleActor) {
+				addActorToScene(particleActor);
+				m_gui.selectedActorIndex =
+					static_cast<int>(m_actors.size()) - 1;
+				m_gui.m_statusMessage =
+					"Emisor de particulas creado";
+			}
+		}
+
 		if (m_gui.consumeAimLightRequest()) {
 			EU::TSharedPointer<Actor> selectedLight = getSelectedActor();
 			if (selectedLight &&
@@ -2852,6 +2892,7 @@ BaseApp::update(float deltaTime) {
 	m_skybox.update(m_deviceContext, m_camera);
 	m_constantBuffer.update(m_deviceContext, nullptr, 0, nullptr, &m_constantBufferStruct, 0, 0);
 	m_sceneGraph.update(deltaTime, m_deviceContext);
+	updateParticleBillboards();
 }
 
 void
@@ -2923,6 +2964,16 @@ BaseApp::render() {
 void
 BaseApp::destroy() {
 	if (m_deviceContext.m_deviceContext) m_deviceContext.m_deviceContext->ClearState();
+
+	// Los emisores poseen buffers/texturas propios. Se liberan de forma
+	// explicita antes de destruir el device.
+	for (const auto& actor : m_actors) {
+		if (actor.isNull()) continue;
+		EU::TSharedPointer<ParticleEmitterComponent> emitter =
+			actor->getComponent<ParticleEmitterComponent>();
+		if (emitter) emitter->destroy();
+	}
+
 	m_sceneGraph.destroy();
 	m_renderPipeline.destroy();
 	m_editorViewportPass.destroy();
@@ -4598,6 +4649,14 @@ BaseApp::loadModelActor(const std::string& modelPath) {
 bool
 BaseApp::getActorAABB(const EU::TSharedPointer<Actor>& actor, EU::Vector3& outMin, EU::Vector3& outMax) {
 	if (actor.isNull()) return false;
+
+	EU::TSharedPointer<ParticleEmitterComponent> particleEmitter =
+		actor->getComponent<ParticleEmitterComponent>();
+	if (particleEmitter &&
+		particleEmitter->getLocalBounds(outMin, outMax)) {
+		return true;
+	}
+
 	EU::TSharedPointer<MeshRendererComponent> mr = actor->getComponent<MeshRendererComponent>();
 	if (!mr) return false;
 	Mesh* mesh = mr->getMesh();
@@ -4674,8 +4733,23 @@ BaseApp::cloneActor(
         source->getComponent<LightComponent>();
     EU::TSharedPointer<MeshRendererComponent> sourceRenderer =
         source->getComponent<MeshRendererComponent>();
+    EU::TSharedPointer<ParticleEmitterComponent> sourceParticle =
+        source->getComponent<ParticleEmitterComponent>();
 
-    if (sourceLight) {
+    if (sourceParticle) {
+        clone = spawnParticleEmitterActor(
+            sourceParticle->getPreset(),
+            newName,
+            newPosition);
+        if (!clone.isNull()) {
+            EU::TSharedPointer<ParticleEmitterComponent> clonedParticle =
+                clone->getComponent<ParticleEmitterComponent>();
+            if (clonedParticle) {
+                clonedParticle->copyConfigurationFrom(*sourceParticle);
+            }
+        }
+    }
+    else if (sourceLight) {
         const LightData& data = sourceLight->getLightData();
         clone = spawnLightActor(
             data.type,
@@ -4765,6 +4839,80 @@ BaseApp::cloneActor(
     return clone;
 }
 
+
+EU::TSharedPointer<Actor>
+BaseApp::spawnParticleEmitterActor(
+    ParticlePreset preset,
+    const std::string& name,
+    const EU::Vector3& position) {
+
+    EU::TSharedPointer<Actor> actor =
+        EU::MakeShared<Actor>(m_device);
+    if (actor.isNull()) {
+        return actor;
+    }
+
+    actor->setName(name.empty() ? "Particle Emitter" : name);
+    actor->setCastShadow(false);
+
+    EU::TSharedPointer<Transform> transform =
+        actor->getComponent<Transform>();
+    if (transform) {
+        transform->setTransform(
+            position,
+            EU::Vector3(0.0f, 0.0f, 0.0f),
+            EU::Vector3(1.0f, 1.0f, 1.0f));
+    }
+
+    EU::TSharedPointer<ParticleEmitterComponent> emitter =
+        EU::MakeShared<ParticleEmitterComponent>();
+    if (emitter.isNull()) {
+        return EU::TSharedPointer<Actor>();
+    }
+
+    const HRESULT hr = emitter->initialize(
+        m_device,
+        &m_transparentPbrMaterial,
+        &m_particleAdditiveMaterial,
+        &m_carTextures[CarTexWhite],
+        &m_carTextures[CarTexFlatNormal],
+        &m_carTextures[CarTexMetallicBlack],
+        &m_carTextures[CarTexRoughnessMedium],
+        &m_carTextures[CarTexAOWide],
+        &m_carTextures[CarTexEmissiveBlack],
+        preset);
+
+    if (FAILED(hr)) {
+        ERROR("BaseApp", "spawnParticleEmitterActor",
+            "No se pudo inicializar el emisor de particulas.");
+        return EU::TSharedPointer<Actor>();
+    }
+
+    actor->addComponent(emitter);
+    return actor;
+}
+
+void BaseApp::updateParticleBillboards() {
+    for (const auto& actor : m_actors) {
+        if (actor.isNull() || !actor->isActive()) {
+            continue;
+        }
+
+        EU::TSharedPointer<ParticleEmitterComponent> emitter =
+            actor->getComponent<ParticleEmitterComponent>();
+        EU::TSharedPointer<Transform> transform =
+            actor->getComponent<Transform>();
+
+        if (!emitter || !transform || !emitter->isEnabled()) {
+            continue;
+        }
+
+        emitter->buildBillboardMesh(
+            m_deviceContext,
+            m_camera,
+            transform->worldMatrix);
+    }
+}
 
 EU::TSharedPointer<Actor>
 BaseApp::spawnLightActor(

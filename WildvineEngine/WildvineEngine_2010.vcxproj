@@ -443,6 +443,7 @@
     <ClCompile Include="source\Device.cpp" />
     <ClCompile Include="source\DeviceContext.cpp" />
     <ClCompile Include="source\ECS\Actor.cpp" />
+    <ClCompile Include="source\ECS\ParticleEmitterComponent.cpp" />
     <ClCompile Include="source\EditorViewportPass.cpp" />
     <ClCompile Include="source\GUI\GUI.cpp" />
     <ClCompile Include="source\Rendering\DeferredRenderer.cpp" />
@@ -492,6 +493,7 @@
     <ClInclude Include="include\ECS\LightComponent.h" />
     <ClInclude Include="include\ECS\MeshRendererComponent.h" />
     <ClInclude Include="include\ECS\Entity.h" />
+    <ClInclude Include="include\ECS\ParticleEmitterComponent.h" />
     <ClInclude Include="include\ECS\Transform.h" />
     <ClInclude Include="include\EngineUtilities\GUI\GUI.h" />
     <ClInclude Include="include\EngineUtilities\Memory\TSharedPointer.h" />
@@ -510,6 +512,7 @@
     <ClInclude Include="include\Rendering\Mesh.h" />
     <ClInclude Include="include\Rendering\Octree.h" />
     <ClInclude Include="include\Rendering\OctreeNode.h" />
+    <ClInclude Include="include\Rendering\Particle.h" />
     <ClInclude Include="include\Rendering\PerformanceProfiler.h" />
     <ClInclude Include="include\Rendering\RenderPipeline.h" />
     <ClInclude Include="include\Rendering\RenderScene.h" />
